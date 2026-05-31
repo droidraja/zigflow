@@ -95,7 +95,7 @@ channel.
 Contact the maintainers directly:
 
 - [GitHub](https://github.com/mrsimonemms)
-- [LinkedIn](https://www.linkedin.com/in/mrsimonemms)
+- [LinkedIn](https://www.linkedin.com/in/simonemms)
 - Email: [hello@zigflow.dev](mailto:hello@zigflow.dev)
 
 These channels are for sponsorship, consulting and commercial enquiries only.

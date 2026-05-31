@@ -389,4 +389,4 @@ timeout.
 
 - [CloudEvents Specification](https://cloudevents.io)
 - [CloudEvents SDK for Go](https://github.com/cloudevents/sdk-go)
-- [Temporal Observability](https://docs.temporal.io/observability)
+- [Temporal Observability](https://docs.temporal.io/evaluate/development-production-features/observability)
