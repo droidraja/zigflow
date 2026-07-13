@@ -29,7 +29,56 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
+// WorkflowBuildOptions contains the execution options captured by a built
+// workflow closure tree.
+type WorkflowBuildOptions struct {
+	Envvars   map[string]any
+	Emitter   *cloudevents.Events
+	Telemetry *telemetry.Telemetry
+	TaskOpts  *tasks.TaskOpts
+}
+
+// BuildPreparedWorkflow builds a prepared workflow into an execution-local
+// registry. It never registers workflow types on an SDK worker.
+//
+// Call PrepareWorkflow for byte definitions, or otherwise run the same
+// preparation validation before passing a programmatically created model.
+func BuildPreparedWorkflow(
+	doc *model.Workflow,
+	opts WorkflowBuildOptions,
+) (*tasks.LocalWorkflowRegistry, error) {
+	registry := tasks.NewLocalWorkflowRegistry()
+	taskOpts := cloneTaskOpts(opts.TaskOpts)
+	taskOpts.WorkflowRegistrar = registry
+
+	emitter := opts.Emitter
+	if emitter == nil {
+		emitter = cloudevents.NewNoOpEvents()
+	}
+
+	if err := buildPreparedWorkflow(nil, doc, opts.Envvars, emitter, opts.Telemetry, taskOpts); err != nil {
+		return nil, err
+	}
+
+	return registry, nil
+}
+
 func NewWorkflow(
+	temporalWorker worker.Worker,
+	doc *model.Workflow,
+	envvars map[string]any,
+	emitter *cloudevents.Events,
+	telem *telemetry.Telemetry,
+	taskOpts *tasks.TaskOpts,
+) error {
+	if err := newWorkflowPrepare(doc); err != nil {
+		return err
+	}
+
+	return buildPreparedWorkflow(temporalWorker, doc, envvars, emitter, telem, taskOpts)
+}
+
+func buildPreparedWorkflow(
 	temporalWorker worker.Worker,
 	doc *model.Workflow,
 	envvars map[string]any,
@@ -74,24 +123,6 @@ func NewWorkflow(
 		return fmt.Errorf("error creating do builder: %w", err)
 	}
 
-	l.Debug().Msg("Post-loading workflow")
-	if err := doBuilder.PostLoad(); err != nil {
-		l.Error().Err(err).Msg("Error post-loading workflow")
-		return fmt.Errorf("error post-loading workflow: %w", err)
-	}
-
-	l.Debug().Msg("Validating workflow")
-	if err := doBuilder.Validate(); err != nil {
-		l.Error().Err(err).Msg("Error validating workflow")
-		return fmt.Errorf("error validating workflow: %w", err)
-	}
-
-	l.Debug().Msg("Validating workflow expression determinism")
-	if err := ValidateWorkflowDeterminism(doc); err != nil {
-		l.Error().Err(err).Msg("Error validating workflow expression determinism")
-		return fmt.Errorf("error validating workflow expression determinism: %w", err)
-	}
-
 	l.Debug().Msg("Building workflow")
 	if _, err := doBuilder.Build(); err != nil {
 		l.Debug().Err(err).Msg("Error building workflow")
@@ -99,6 +130,19 @@ func NewWorkflow(
 	}
 
 	return nil
+}
+
+func cloneTaskOpts(opts *tasks.TaskOpts) *tasks.TaskOpts {
+	if opts == nil {
+		return &tasks.TaskOpts{}
+	}
+
+	cloned := *opts
+	if opts.Run != nil {
+		runOpts := *opts.Run
+		cloned.Run = &runOpts
+	}
+	return &cloned
 }
 
 // newWorkflowPrepare runs the load-time PostLoad and Validate steps on

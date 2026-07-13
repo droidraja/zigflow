@@ -34,11 +34,23 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// PrepareWorkflow parses and prepares a workflow definition from raw YAML or
+// JSON bytes. Schema validation is mandatory and happens before normalisation,
+// model decoding, PostLoad, structural validation, expression determinism
+// validation, and DSL-version validation.
+func PrepareWorkflow(data []byte) (*model.Workflow, error) {
+	return prepareWorkflowBytes(data, true)
+}
+
 // LoadFromBytes parses and normalises a workflow definition from raw YAML or
 // JSON bytes. It does not perform schema validation.
 //
 // Call ValidateBytes before LoadFromBytes when schema enforcement is required.
 func LoadFromBytes(data []byte) (*model.Workflow, error) {
+	return prepareWorkflowBytes(data, false)
+}
+
+func prepareWorkflowBytes(data []byte, validateSchema bool) (*model.Workflow, error) {
 	jsonBytes, err := yaml.YAMLToJSON(data)
 	if err != nil {
 		return nil, fmt.Errorf("error converting yaml to json: %w", err)
@@ -48,6 +60,11 @@ func LoadFromBytes(data []byte) (*model.Workflow, error) {
 	var raw map[string]any
 	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
 		return nil, fmt.Errorf("error unmarshalling to zigflow raw workflow: %w", err)
+	}
+	if validateSchema {
+		if err := schema.ValidateDocument(raw); err != nil {
+			return nil, newSchemaValidationError(err)
+		}
 	}
 
 	if err := normaliseWorkflowDocument(raw); err != nil {
@@ -99,29 +116,8 @@ func LoadFromBytes(data []byte) (*model.Workflow, error) {
 // Other errors (YAML/JSON parse failures, task-builder validation errors) are
 // surfaced as wrapped errors.
 func ValidateBytes(data []byte) error {
-	jsonBytes, err := yaml.YAMLToJSON(data)
-	if err != nil {
-		return fmt.Errorf("error converting yaml to json: %w", err)
-	}
-
-	var rawDoc map[string]any
-	if err := json.Unmarshal(jsonBytes, &rawDoc); err != nil {
-		return fmt.Errorf("error parsing workflow document: %w", err)
-	}
-
-	if err := schema.ValidateDocument(rawDoc); err != nil {
-		return newSchemaValidationError(err)
-	}
-
-	// Run the central workflow-level validation pass. LoadFromBytes invokes
-	// newWorkflowPrepare, which validates task structure and expression
-	// determinism in one place. Doing the load here means ValidateBytes is a
-	// complete validation entry point: schema, structure, and determinism.
-	if _, err := LoadFromBytes(data); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := PrepareWorkflow(data)
+	return err
 }
 
 // LoadFromFile reads a workflow definition from file, maps Zigflow-specific
