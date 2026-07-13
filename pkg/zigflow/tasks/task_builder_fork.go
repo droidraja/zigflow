@@ -224,8 +224,8 @@ func (t *ForkTaskBuilder) exec(forkedTasks []*forkedTask) (TemporalWorkflowFunc,
 			hasReplied:  make([]bool, futures.Length()),
 		}
 
-		i := 0
-		for taskName, w := range futures.List() {
+		for i, entry := range futures.List() {
+			taskName, w := entry.Key, entry.Future
 			// Get the replies in parallel as the "winner" may be last
 			workflow.Go(w.Context, func(ctx workflow.Context) {
 				var childData map[string]any
@@ -234,7 +234,6 @@ func (t *ForkTaskBuilder) exec(forkedTasks []*forkedTask) (TemporalWorkflowFunc,
 					return
 				}
 				fs.recordReply(ctx, logger, taskName, childData, i)
-				i++
 			})
 		}
 

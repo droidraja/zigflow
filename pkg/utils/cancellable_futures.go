@@ -28,20 +28,29 @@ type CancellableFuture struct {
 }
 
 type CancellableFutures struct {
-	m map[string]CancellableFuture
+	list []CancellableFutureEntry
+}
+
+type CancellableFutureEntry struct {
+	Key    string
+	Future CancellableFuture
 }
 
 func (c *CancellableFutures) Add(key string, future CancellableFuture) {
-	if c.m == nil {
-		c.m = map[string]CancellableFuture{}
+	for i := range c.list {
+		if c.list[i].Key == key {
+			c.list[i].Future = future
+			return
+		}
 	}
 
-	c.m[key] = future
+	c.list = append(c.list, CancellableFutureEntry{Key: key, Future: future})
 }
 
 func (c *CancellableFutures) CancelOthers(passedContext workflow.Context) {
 	passedID := workflow.GetChildWorkflowOptions(passedContext).WorkflowID
-	for _, f := range c.m {
+	for _, entry := range c.list {
+		f := entry.Future
 		currentID := workflow.GetChildWorkflowOptions(f.Context).WorkflowID
 
 		if currentID != passedID {
@@ -55,9 +64,9 @@ func (c *CancellableFutures) CancelOthers(passedContext workflow.Context) {
 }
 
 func (c *CancellableFutures) Length() int {
-	return len(c.m)
+	return len(c.list)
 }
 
-func (c *CancellableFutures) List() map[string]CancellableFuture {
-	return c.m
+func (c *CancellableFutures) List() []CancellableFutureEntry {
+	return c.list
 }

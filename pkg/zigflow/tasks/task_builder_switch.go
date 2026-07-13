@@ -55,6 +55,13 @@ type SwitchTaskBuilder struct {
 func (t *SwitchTaskBuilder) Validate() error {
 	hasDefault := false
 	for i, switchItem := range t.task.Switch {
+		if len(switchItem) != 1 {
+			return fmt.Errorf(
+				"switch list item must contain exactly one named case: %s.%d has %d",
+				t.GetTaskName(), i, len(switchItem),
+			)
+		}
+
 		for name, item := range switchItem {
 			if item.When == nil {
 				if hasDefault {

@@ -49,8 +49,46 @@ func TestTryTaskBuilderGetTasks(t *testing.T) {
 	}
 
 	got := builder.getTasks()
-	assert.Equal(t, task.Try, got["try"])
-	assert.Equal(t, task.Catch.Do, got["catch"])
+	require.Len(t, got, 2)
+	assert.Equal(t, tryBodyPathSegment, got[0].name)
+	assert.Equal(t, task.Try, got[0].tasks)
+	assert.Equal(t, catchBodyPathSegment, got[1].name)
+	assert.Equal(t, task.Catch.Do, got[1].tasks)
+}
+
+func TestTryTaskBuilderTraversalReportsTryErrorFirst(t *testing.T) {
+	task := &model.TryTask{
+		Try: &model.TaskList{},
+		Catch: &model.TryTaskCatch{
+			Do: &model.TaskList{},
+		},
+	}
+	builder := &TryTaskBuilder{
+		builder: builder[*model.TryTask]{
+			name: "try-task",
+			task: task,
+		},
+	}
+
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "build", run: func() error { _, err := builder.Build(); return err }},
+		{name: "post load", run: builder.PostLoad},
+		{name: "validate", run: builder.Validate},
+	}
+
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			for range 20 {
+				err := check.run()
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "no tasks detected for try in try-task")
+				assert.NotContains(t, err.Error(), "no tasks detected for catch")
+			}
+		})
+	}
 }
 
 func TestTryTaskBuilderExecRunsCatchOnError(t *testing.T) {

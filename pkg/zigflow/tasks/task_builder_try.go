@@ -57,8 +57,14 @@ type TryTaskBuilder struct {
 	catchChildWorkflowName string
 }
 
+type tryTaskBody struct {
+	name  string
+	tasks *model.TaskList
+}
+
 func (t *TryTaskBuilder) Build() (TemporalWorkflowFunc, error) {
-	for taskType, list := range t.getTasks() {
+	for _, taskBody := range t.getTasks() {
+		taskType, list := taskBody.name, taskBody.tasks
 		name, builder, err := t.createBuilder(taskType, list)
 		if err != nil {
 			return nil, fmt.Errorf("erroring registering %s tasks for %s: %w", taskType, t.GetTaskName(), err)
@@ -80,7 +86,8 @@ func (t *TryTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 }
 
 func (t *TryTaskBuilder) PostLoad() error {
-	for taskType, list := range t.getTasks() {
+	for _, taskBody := range t.getTasks() {
+		taskType, list := taskBody.name, taskBody.tasks
 		_, builder, err := t.createBuilder(taskType, list)
 		if err != nil {
 			return fmt.Errorf("erroring registering %s post load tasks for %s: %w", taskType, t.GetTaskName(), err)
@@ -96,7 +103,8 @@ func (t *TryTaskBuilder) PostLoad() error {
 }
 
 func (t *TryTaskBuilder) Validate() error {
-	for taskType, list := range t.getTasks() {
+	for _, taskBody := range t.getTasks() {
+		taskType, list := taskBody.name, taskBody.tasks
 		_, builder, err := t.createBuilder(taskType, list)
 		if err != nil {
 			return fmt.Errorf("error registering %s validate tasks for %s: %w", taskType, t.GetTaskName(), err)
@@ -251,10 +259,10 @@ func (t *TryTaskBuilder) exec() (TemporalWorkflowFunc, error) {
 	}, nil
 }
 
-func (t *TryTaskBuilder) getTasks() map[string]*model.TaskList {
-	return map[string]*model.TaskList{
-		tryBodyPathSegment:   t.task.Try,
-		catchBodyPathSegment: t.task.Catch.Do,
+func (t *TryTaskBuilder) getTasks() []tryTaskBody {
+	return []tryTaskBody{
+		{name: tryBodyPathSegment, tasks: t.task.Try},
+		{name: catchBodyPathSegment, tasks: t.task.Catch.Do},
 	}
 }
 

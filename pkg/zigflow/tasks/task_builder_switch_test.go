@@ -18,14 +18,22 @@ package tasks
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/serverlessworkflow/sdk-go/v3/model"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/flow"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
+)
+
+const (
+	testSwitchTaskName   = "switch-task"
+	testSwitchCaseFirst  = "first"
+	testSwitchCaseSecond = "second"
 )
 
 func TestSwitchTaskBuilderBuildRejectsMultipleDefaults(t *testing.T) {
@@ -44,12 +52,45 @@ func TestSwitchTaskBuilderBuildRejectsMultipleDefaults(t *testing.T) {
 		},
 	}
 
-	builder, err := NewSwitchTaskBuilder(nil, task, "switch-task", nil, testEvents, nil)
+	builder, err := NewSwitchTaskBuilder(nil, task, testSwitchTaskName, nil, testEvents, nil)
 	assert.NoError(t, err)
 
 	err = builder.Validate()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "multiple switch statements without when")
+}
+
+func TestSwitchTaskBuilderRejectsInvalidListItemShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		switchItem model.SwitchItem
+		wantCount  int
+	}{
+		{name: "empty item", switchItem: model.SwitchItem{}, wantCount: 0},
+		{
+			name: "multiple named cases",
+			switchItem: model.SwitchItem{
+				testSwitchCaseFirst:  {},
+				testSwitchCaseSecond: {},
+			},
+			wantCount: 2,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			task := &model.SwitchTask{Switch: []model.SwitchItem{test.switchItem}}
+			builder, err := NewSwitchTaskBuilder(nil, task, testSwitchTaskName, nil, testEvents, nil)
+			require.NoError(t, err)
+
+			err = builder.Validate()
+			require.Error(t, err)
+			assert.EqualError(t, err, fmt.Sprintf(
+				"switch list item must contain exactly one named case: %s.0 has %d",
+				testSwitchTaskName, test.wantCount,
+			))
+		})
+	}
 }
 
 // runSwitch executes the built switch function inside a Temporal test
@@ -60,7 +101,7 @@ func TestSwitchTaskBuilderBuildRejectsMultipleDefaults(t *testing.T) {
 func runSwitch(t *testing.T, task *model.SwitchTask, state *utils.State) error {
 	t.Helper()
 
-	builder, err := NewSwitchTaskBuilder(nil, task, "switch-task", nil, testEvents, nil)
+	builder, err := NewSwitchTaskBuilder(nil, task, testSwitchTaskName, nil, testEvents, nil)
 	assert.NoError(t, err)
 
 	fn, err := builder.Build()

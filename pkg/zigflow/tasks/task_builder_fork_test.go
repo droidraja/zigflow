@@ -34,6 +34,14 @@ import (
 
 type fakeWorkflowContext struct{}
 
+const (
+	testForkBranchFirst         = "first"
+	testForkBranchSecond        = "second"
+	testForkBranchThird         = "third"
+	testForkBranchWinner        = "winner"
+	testForkChildWorkflowPrefix = "fork-"
+)
+
 func (fakeWorkflowContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (fakeWorkflowContext) Done() workflow.Channel      { return nil }
 func (fakeWorkflowContext) Err() error                  { return nil }
@@ -180,6 +188,92 @@ func TestForkTaskBuilderExecStillWrapsRealBranchFailure(t *testing.T) {
 	require.Error(t, workflowErr)
 	assert.Contains(t, workflowErr.Error(), "error forking task")
 	assert.NotContains(t, workflowErr.Error(), flow.ErrEnd.Error())
+}
+
+func TestForkTaskBuilderExecUsesBranchDefinitionOrder(t *testing.T) {
+	type branchDefinition struct {
+		name string
+	}
+
+	tests := []struct {
+		name        string
+		compete     bool
+		branches    []branchDefinition
+		wantResult  map[string]any
+		wantStarted []string
+	}{
+		{
+			name: "completion aggregates branches by their defined names",
+			branches: []branchDefinition{
+				{name: testForkBranchFirst},
+				{name: testForkBranchSecond},
+				{name: testForkBranchThird},
+			},
+			wantResult: map[string]any{
+				testForkBranchFirst:  map[string]any{testConstValue: testForkBranchFirst},
+				testForkBranchSecond: map[string]any{testConstValue: testForkBranchSecond},
+				testForkBranchThird:  map[string]any{testConstValue: testForkBranchThird},
+			},
+			wantStarted: []string{testForkBranchFirst, testForkBranchSecond, testForkBranchThird},
+		},
+		{
+			name:        "compete returns winner data without branch wrapper",
+			compete:     true,
+			branches:    []branchDefinition{{name: testForkBranchWinner}},
+			wantResult:  map[string]any{testConstValue: testForkBranchWinner},
+			wantStarted: []string{testForkBranchWinner},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for range 10 {
+				forkedTasks := make([]*forkedTask, 0, len(test.branches))
+				for _, branch := range test.branches {
+					forkedTasks = append(forkedTasks, &forkedTask{
+						task:              &model.TaskItem{Key: branch.name},
+						childWorkflowName: testForkChildWorkflowPrefix + branch.name,
+						taskName:          branch.name,
+					})
+				}
+
+				builder := &ForkTaskBuilder{
+					builder: builder[*model.ForkTask]{
+						name: "ordered-fork",
+						task: &model.ForkTask{
+							Fork: model.ForkTaskConfiguration{Compete: test.compete},
+						},
+					},
+				}
+				fn, err := builder.exec(forkedTasks)
+				require.NoError(t, err)
+
+				started := make([]string, 0, len(test.branches))
+				var suite testsuite.WorkflowTestSuite
+				env := suite.NewTestWorkflowEnvironment()
+				for _, branch := range test.branches {
+					env.RegisterWorkflowWithOptions(
+						func(ctx workflow.Context, _ any, _ *utils.State) (map[string]any, error) {
+							started = append(started, branch.name)
+							return map[string]any{testConstValue: branch.name}, nil
+						},
+						workflow.RegisterOptions{Name: testForkChildWorkflowPrefix + branch.name},
+					)
+				}
+
+				env.RegisterWorkflowWithOptions(func(ctx workflow.Context) (any, error) {
+					return fn(ctx, nil, utils.NewState())
+				}, workflow.RegisterOptions{Name: "ordered-fork-host"})
+				env.ExecuteWorkflow("ordered-fork-host")
+				require.NoError(t, env.GetWorkflowError())
+
+				var result map[string]any
+				require.NoError(t, env.GetWorkflowResult(&result))
+				assert.Equal(t, test.wantResult, result)
+				assert.Equal(t, test.wantStarted, started)
+			}
+		})
+	}
 }
 
 // testForkTaskName is the fork task's own name (and sole path segment) used
