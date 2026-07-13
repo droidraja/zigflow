@@ -451,7 +451,11 @@ func (t *ForTaskBuilder) iterator(ctx workflow.Context, key, value any, workingS
 	logger.Info("Triggering forked child workflow", "name", t.childWorkflowName)
 
 	var res forChildResult
-	if err := workflow.ExecuteChildWorkflow(childCtx, t.childWorkflowName, iterState.Input, iterState).Get(ctx, &res); err != nil {
+	if err := workflow.ExecuteChildWorkflow(
+		childCtx,
+		t.childWorkflowName,
+		t.internalInvocationArgs(iterState.Input, iterState)...,
+	).Get(ctx, &res); err != nil {
 		// A `then: end` directive inside the iteration body crosses the
 		// child workflow boundary as a typed Temporal ApplicationError
 		// carrying the iteration's effective output. Surface it as
