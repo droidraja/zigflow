@@ -213,7 +213,11 @@ func (t *ForkTaskBuilder) exec(forkedTasks []*forkedTask) (TemporalWorkflowFunc,
 			futures.Add(branch.taskName, utils.CancellableFuture{
 				Cancel:  cancelHandler,
 				Context: childCtx,
-				Future:  workflow.ExecuteChildWorkflow(childCtx, branch.childWorkflowName, input, childState),
+				Future: workflow.ExecuteChildWorkflow(
+					childCtx,
+					branch.childWorkflowName,
+					t.internalInvocationArgs(input, childState)...,
+				),
 			})
 		}
 
