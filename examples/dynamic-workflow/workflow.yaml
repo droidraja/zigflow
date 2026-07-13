@@ -1,0 +1,76 @@
+document:
+  dsl: 1.0.0
+  taskQueue: dynamic-e2e
+  workflowType: arbitrary-dynamic-workflow
+  version: 0.0.1
+  title: Dynamic workflow execution
+  summary: Execute an inline workflow definition on a dynamic task queue
+  metadata:
+    display: false
+    tags:
+      - dynamic
+      - replay
+    activityOptions:
+      startToCloseTimeout:
+        seconds: 10
+    canMaxHistoryLength: 15
+do:
+  - initialise:
+      set:
+        selected: ${ $input.selected }
+  - select:
+      switch:
+        - recordedEnvironment:
+            when: ${ $env.RELEASE == "recorded" and $data.selected == "run" }
+            then: continue
+        - default:
+            then: end
+  - request:
+      call: http
+      with:
+        method: get
+        endpoint: http://127.0.0.1:1/dynamic
+  - iterate:
+      for:
+        each: item
+        in: ${ $input.items }
+        at: index
+      do:
+        - capture:
+            output:
+              as:
+                index: ${ $data.index }
+                item: ${ $data.item }
+            set:
+              item: ${ $data.item }
+  - parallel:
+      fork:
+        compete: false
+        branches:
+          - first:
+              set:
+                branch: first
+          - second:
+              set:
+                branch: second
+  - guarded:
+      try:
+        - fail:
+            raise:
+              error:
+                type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                status: 400
+      catch:
+        as: failure
+        do:
+          - recover:
+              set:
+                caught: true
+  - finish:
+      output:
+        as:
+          complete: true
+          environment: ${ $env.RELEASE }
+          input: ${ $input.marker }
+      set:
+        complete: true

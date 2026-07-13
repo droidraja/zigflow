@@ -31,6 +31,7 @@ A collection of examples
 | [Competing Concurrent Tasks](./competing-concurrent-tasks) | Have two tasks competing and the first to finish wins |
 | [Conditional Tasks](./conditionally-execute) | Execute tasks conditionally |
 | [Data Flow](./data-flow) | Demonstrate the difference between output and export ($output vs $context) |
+| [Dynamic workflow execution](./dynamic-workflow) | Execute an inline workflow definition on a dynamic task queue |
 | [Error Fallback](./error-fallback) | Retry a failing call, then recover with a fallback so the workflow succeeds |
 | [External Calls](./external-calls) | An example of how to use Zigflow to make external gRPC and HTTP calls |
 | [Fan-out / Fan-in](./fan-out-fan-in) | Run branches concurrently then aggregate their results (scatter/gather) |

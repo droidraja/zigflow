@@ -99,6 +99,50 @@ func StartWorker(ctx context.Context, t *testing.T, temporalAddress string, work
 func StartWorkerWithEnv(ctx context.Context, t *testing.T, extraEnv []string, temporalAddress string, workflowFiles ...string) {
 	t.Helper()
 
+	workerFlags := make([]string, 0, len(workflowFiles)*2)
+	for _, f := range workflowFiles {
+		workerFlags = append(workerFlags, "--file", f)
+	}
+	_ = startWorkerWithFlags(ctx, t, extraEnv, temporalAddress, workerFlags)
+}
+
+// WorkerProcess is a running Zigflow worker subprocess started by an E2E test.
+// Stop terminates the worker and waits for its output streams and process to be
+// reaped. It is safe to call Stop more than once.
+type WorkerProcess struct {
+	stop func()
+}
+
+// Stop terminates the worker process and waits for it to exit.
+func (p *WorkerProcess) Stop() {
+	if p != nil && p.stop != nil {
+		p.stop()
+	}
+}
+
+// StartDynamicWorkerWithEnv starts Zigflow with one dynamic task queue and no
+// workflow file. The returned process can be stopped before the test finishes,
+// which allows restart and replay tests to change worker process environment.
+func StartDynamicWorkerWithEnv(
+	ctx context.Context,
+	t *testing.T,
+	extraEnv []string,
+	temporalAddress string,
+	taskQueue string,
+) *WorkerProcess {
+	t.Helper()
+	return startWorkerWithFlags(ctx, t, extraEnv, temporalAddress, []string{"--dynamic-task-queue", taskQueue})
+}
+
+func startWorkerWithFlags(
+	ctx context.Context,
+	t *testing.T,
+	extraEnv []string,
+	temporalAddress string,
+	workerFlags []string,
+) *WorkerProcess {
+	t.Helper()
+
 	// The health port is pre-allocated so the readiness probe knows where to
 	// poll. Unlike the metrics port (which binds 127.0.0.1:0 and never clashes),
 	// that pre-allocation leaves a window in which a parallel worker can grab the
@@ -106,30 +150,37 @@ func StartWorkerWithEnv(ctx context.Context, t *testing.T, extraEnv []string, te
 	// collision is purely transient, so retry with a fresh port a few times
 	// before failing. Non-collision startup failures still fail immediately.
 	for attempt := 1; attempt <= workerStartAttempts; attempt++ {
-		if startWorkerAttempt(ctx, t, attempt, extraEnv, temporalAddress, workflowFiles...) {
-			return
+		process, retry := startWorkerAttempt(ctx, t, attempt, extraEnv, temporalAddress, workerFlags)
+		if process != nil {
+			return process
+		}
+		if !retry {
+			break
 		}
 	}
 
 	t.Fatalf("worker never became ready: health port was already in use on all %d attempts", workerStartAttempts)
+	return nil
 }
 
 // startWorkerAttempt starts the worker once on a fresh health port and waits for
-// it to report ready. It returns true once ready. It returns false only when the
-// worker exited because its health port was already in use, signalling the
-// caller to retry; any other startup failure fails the test via t.Fatalf so real
-// problems are not retried or hidden.
+// it to report ready. A ready worker is returned to the caller. The retry result
+// is true only when the worker exited because its health port was already in
+// use. Any other startup failure fails the test so real problems are not hidden.
 func startWorkerAttempt(
-	ctx context.Context, t *testing.T, attempt int, extraEnv []string, temporalAddress string, workflowFiles ...string,
-) bool {
+	ctx context.Context,
+	t *testing.T,
+	attempt int,
+	extraEnv []string,
+	temporalAddress string,
+	workerFlags []string,
+) (*WorkerProcess, bool) {
 	t.Helper()
 
 	healthPort := freePort(t)
 
 	program, args := workerCommand(t)
-	for _, f := range workflowFiles {
-		args = append(args, "--file", f)
-	}
+	args = append(args, workerFlags...)
 	args = append(
 		args,
 		"--temporal-address", temporalAddress,
@@ -174,13 +225,17 @@ func startWorkerAttempt(
 	}()
 
 	if workerReady(ctx, healthPort, exited) {
-		t.Cleanup(func() {
-			// Kill the whole process group; ignore errors as the process may
-			// have already exited. Then wait for it to be reaped.
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			<-exited
-		})
-		return true
+		var stopOnce sync.Once
+		process := &WorkerProcess{stop: func() {
+			stopOnce.Do(func() {
+				// Kill the whole process group; ignore errors as the process may
+				// have already exited. Then wait for it to be reaped.
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				<-exited
+			})
+		}}
+		t.Cleanup(process.Stop)
+		return process, false
 	}
 
 	// Not ready. Stop the process so its pipes close and the reaper completes,
@@ -191,12 +246,12 @@ func startWorkerAttempt(
 	if sawBindCollision.Load() {
 		t.Logf("worker start attempt %d/%d: health port %d already in use; retrying with a fresh port",
 			attempt, workerStartAttempts, healthPort)
-		return false
+		return nil, true
 	}
 
 	t.Fatalf("worker did not become ready (attempt %d/%d, health port %d); see worker output above",
 		attempt, workerStartAttempts, healthPort)
-	return false
+	return nil, false
 }
 
 // StartGoWorker runs an in-repo Go worker package (for example an example's
