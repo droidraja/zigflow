@@ -19,7 +19,9 @@ package tasks
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 	swUtils "github.com/serverlessworkflow/sdk-go/v3/impl/utils"
@@ -51,10 +53,111 @@ type TaskBuilder interface {
 
 // Configure any task opts that come from the CLI
 type TaskOpts struct {
-	Run *RunTaskOpts
+	Run               *RunTaskOpts
+	WorkflowRegistrar WorkflowRegistrar
 }
 
 type TemporalWorkflowFunc func(ctx workflow.Context, input any, state *utils.State) (output any, err error)
+
+// WorkflowRegistrar separates task-tree construction from Temporal worker
+// registration. Implementations must reject duplicate workflow type names.
+type WorkflowRegistrar interface {
+	RegisterWorkflow(name string, fn TemporalWorkflowFunc) error
+}
+
+// WorkerWorkflowRegistrar registers built workflows on an SDK worker.
+type WorkerWorkflowRegistrar struct {
+	worker worker.Worker
+	mu     sync.Mutex
+	names  map[string]struct{}
+}
+
+// NewWorkerWorkflowRegistrar adapts an SDK worker to WorkflowRegistrar.
+func NewWorkerWorkflowRegistrar(temporalWorker worker.Worker) *WorkerWorkflowRegistrar {
+	return &WorkerWorkflowRegistrar{
+		worker: temporalWorker,
+		names:  make(map[string]struct{}),
+	}
+}
+
+// RegisterWorkflow registers fn under name on the adapted SDK worker.
+func (r *WorkerWorkflowRegistrar) RegisterWorkflow(name string, fn TemporalWorkflowFunc) error {
+	if r == nil || r.worker == nil {
+		return fmt.Errorf("cannot register workflow %q: Temporal worker is not configured", name)
+	}
+	if name == "" {
+		return fmt.Errorf("cannot register workflow with an empty name")
+	}
+	if fn == nil {
+		return fmt.Errorf("cannot register workflow %q: workflow function is nil", name)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.names[name]; exists {
+		return fmt.Errorf("workflow type %q is already registered", name)
+	}
+
+	r.worker.RegisterWorkflowWithOptions(fn, workflow.RegisterOptions{Name: name})
+	r.names[name] = struct{}{}
+	return nil
+}
+
+// LocalWorkflowRegistry stores built workflows for one execution. It is not
+// shared between builds or workflow invocations.
+type LocalWorkflowRegistry struct {
+	workflows map[string]TemporalWorkflowFunc
+}
+
+// NewLocalWorkflowRegistry creates an empty execution-local registry.
+func NewLocalWorkflowRegistry() *LocalWorkflowRegistry {
+	return &LocalWorkflowRegistry{workflows: make(map[string]TemporalWorkflowFunc)}
+}
+
+// RegisterWorkflow records fn under name and rejects duplicate names.
+func (r *LocalWorkflowRegistry) RegisterWorkflow(name string, fn TemporalWorkflowFunc) error {
+	if r == nil {
+		return fmt.Errorf("cannot register workflow %q: local workflow registry is nil", name)
+	}
+	if name == "" {
+		return fmt.Errorf("cannot register workflow with an empty name")
+	}
+	if fn == nil {
+		return fmt.Errorf("cannot register workflow %q: workflow function is nil", name)
+	}
+	if r.workflows == nil {
+		r.workflows = make(map[string]TemporalWorkflowFunc)
+	}
+	if _, exists := r.workflows[name]; exists {
+		return fmt.Errorf("workflow type %q is already registered", name)
+	}
+
+	r.workflows[name] = fn
+	return nil
+}
+
+// Workflow returns the workflow registered under name.
+func (r *LocalWorkflowRegistry) Workflow(name string) (TemporalWorkflowFunc, bool) {
+	if r == nil {
+		return nil, false
+	}
+	fn, ok := r.workflows[name]
+	return fn, ok
+}
+
+// Names returns registered workflow type names in deterministic order.
+func (r *LocalWorkflowRegistry) Names() []string {
+	if r == nil {
+		return nil
+	}
+
+	names := make([]string, 0, len(r.workflows))
+	for name := range r.workflows {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 type builder[T model.Task] struct {
 	doc            *model.Workflow
@@ -129,6 +232,21 @@ func (d *builder[T]) registerActivityForTask(fn any) string {
 	name := d.perTaskActivityName()
 	registerActivityOnce(d.temporalWorker, fn, name)
 	return name
+}
+
+func (d *builder[T]) registerWorkflow(name string, fn TemporalWorkflowFunc) error {
+	registrar := d.workflowRegistrar()
+	if err := registrar.RegisterWorkflow(name, fn); err != nil {
+		return fmt.Errorf("error registering workflow %q: %w", name, err)
+	}
+	return nil
+}
+
+func (d *builder[T]) workflowRegistrar() WorkflowRegistrar {
+	if d.taskOpts != nil && d.taskOpts.WorkflowRegistrar != nil {
+		return d.taskOpts.WorkflowRegistrar
+	}
+	return NewWorkerWorkflowRegistrar(d.temporalWorker)
 }
 
 // Combines registerActivityForTask with the dispatch closure used by

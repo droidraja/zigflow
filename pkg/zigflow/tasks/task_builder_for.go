@@ -112,9 +112,11 @@ func (t *ForTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 	}
 
 	// Register a wrapper child workflow that returns the iteration output and
-	// exported context so the loop can propagate inter-iteration state.
-	t.temporalWorker.RegisterWorkflowWithOptions(
-		func(ctx workflow.Context, input any, state *utils.State) (forChildResult, error) {
+	// exported context so the loop can propagate inter-iteration state. The
+	// uniform TemporalWorkflowFunc signature still serialises forChildResult as
+	// the workflow result value.
+	wrapper := TemporalWorkflowFunc(
+		func(ctx workflow.Context, input any, state *utils.State) (any, error) {
 			output, err := innerFn(ctx, input, state)
 			if err != nil {
 				return forChildResult{}, err
@@ -124,8 +126,10 @@ func (t *ForTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 				Context: state.Context,
 			}, nil
 		},
-		workflow.RegisterOptions{Name: t.childWorkflowName},
 	)
+	if err := t.registerWorkflow(t.childWorkflowName, wrapper); err != nil {
+		return nil, err
+	}
 
 	return t.exec()
 }

@@ -59,6 +59,14 @@ func NewDoTaskBuilder(
 	if doOpts.Envvars == nil {
 		doOpts.Envvars = map[string]any{}
 	}
+	if taskOpts == nil {
+		taskOpts = &TaskOpts{}
+	}
+	if taskOpts.WorkflowRegistrar == nil && temporalWorker != nil {
+		rootTaskOpts := *taskOpts
+		rootTaskOpts.WorkflowRegistrar = NewWorkerWorkflowRegistrar(temporalWorker)
+		taskOpts = &rootTaskOpts
+	}
 
 	return &DoTaskBuilder{
 		builder: builder[*model.DoTask]{
@@ -131,9 +139,9 @@ func (t *DoTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 	if !t.opts.DisableRegisterWorkflow {
 		if hasNoDo {
 			log.Debug().Str("name", t.GetTaskName()).Msg("Registering workflow")
-			t.temporalWorker.RegisterWorkflowWithOptions(wf, workflow.RegisterOptions{
-				Name: t.GetTaskName(),
-			})
+			if err := t.registerWorkflow(t.GetTaskName(), wf); err != nil {
+				return nil, err
+			}
 		}
 	}
 
