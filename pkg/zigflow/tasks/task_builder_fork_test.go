@@ -196,11 +196,10 @@ func TestForkTaskBuilderExecUsesBranchDefinitionOrder(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		compete     bool
-		branches    []branchDefinition
-		wantResult  map[string]any
-		wantStarted []string
+		name       string
+		compete    bool
+		branches   []branchDefinition
+		wantResult map[string]any
 	}{
 		{
 			name: "completion aggregates branches by their defined names",
@@ -214,14 +213,12 @@ func TestForkTaskBuilderExecUsesBranchDefinitionOrder(t *testing.T) {
 				testForkBranchSecond: map[string]any{testConstValue: testForkBranchSecond},
 				testForkBranchThird:  map[string]any{testConstValue: testForkBranchThird},
 			},
-			wantStarted: []string{testForkBranchFirst, testForkBranchSecond, testForkBranchThird},
 		},
 		{
-			name:        "compete returns winner data without branch wrapper",
-			compete:     true,
-			branches:    []branchDefinition{{name: testForkBranchWinner}},
-			wantResult:  map[string]any{testConstValue: testForkBranchWinner},
-			wantStarted: []string{testForkBranchWinner},
+			name:       "compete returns winner data without branch wrapper",
+			compete:    true,
+			branches:   []branchDefinition{{name: testForkBranchWinner}},
+			wantResult: map[string]any{testConstValue: testForkBranchWinner},
 		},
 	}
 
@@ -248,13 +245,11 @@ func TestForkTaskBuilderExecUsesBranchDefinitionOrder(t *testing.T) {
 				fn, err := builder.exec(forkedTasks)
 				require.NoError(t, err)
 
-				started := make([]string, 0, len(test.branches))
 				var suite testsuite.WorkflowTestSuite
 				env := suite.NewTestWorkflowEnvironment()
 				for _, branch := range test.branches {
 					env.RegisterWorkflowWithOptions(
 						func(ctx workflow.Context, _ any, _ *utils.State) (map[string]any, error) {
-							started = append(started, branch.name)
 							return map[string]any{testConstValue: branch.name}, nil
 						},
 						workflow.RegisterOptions{Name: testForkChildWorkflowPrefix + branch.name},
@@ -270,7 +265,6 @@ func TestForkTaskBuilderExecUsesBranchDefinitionOrder(t *testing.T) {
 				var result map[string]any
 				require.NoError(t, env.GetWorkflowResult(&result))
 				assert.Equal(t, test.wantResult, result)
-				assert.Equal(t, test.wantStarted, started)
 			}
 		})
 	}

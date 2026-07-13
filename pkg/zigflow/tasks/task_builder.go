@@ -53,9 +53,23 @@ type TaskBuilder interface {
 
 // Configure any task opts that come from the CLI
 type TaskOpts struct {
-	Run               *RunTaskOpts
-	WorkflowRegistrar WorkflowRegistrar
+	Run                    *RunTaskOpts
+	WorkflowRegistrar      WorkflowRegistrar
+	ActivityDispatchPolicy ActivityDispatchPolicy
 }
+
+// ActivityDispatchPolicy controls how built-in activities are registered and
+// named when they are scheduled.
+type ActivityDispatchPolicy uint8
+
+const (
+	// ActivityDispatchStatic preserves worker registration of per-task aliases
+	// and Temporal versioning for histories which used the fixed method names.
+	ActivityDispatchStatic ActivityDispatchPolicy = iota
+	// ActivityDispatchDynamic schedules the fixed method names exposed by
+	// ActivitiesList and performs no worker registration during the build.
+	ActivityDispatchDynamic
+)
 
 type TemporalWorkflowFunc func(ctx workflow.Context, input any, state *utils.State) (output any, err error)
 
@@ -234,6 +248,27 @@ func (d *builder[T]) registerActivityForTask(fn any) string {
 	return name
 }
 
+func (d *builder[T]) activityDispatchPolicy() ActivityDispatchPolicy {
+	if d.taskOpts == nil {
+		return ActivityDispatchStatic
+	}
+	return d.taskOpts.ActivityDispatchPolicy
+}
+
+func (d *builder[T]) prepareBuiltInActivity(fn any, fixedName string) string {
+	if d.activityDispatchPolicy() == ActivityDispatchDynamic {
+		return fixedName
+	}
+	return d.registerActivityForTask(fn)
+}
+
+func (d *builder[T]) builtInActivityName(ctx workflow.Context, fixedName, preparedName string) string {
+	if d.activityDispatchPolicy() == ActivityDispatchDynamic {
+		return fixedName
+	}
+	return dispatchActivityName(ctx, fixedName, preparedName)
+}
+
 func (d *builder[T]) registerWorkflow(name string, fn TemporalWorkflowFunc) error {
 	registrar := d.workflowRegistrar()
 	if err := registrar.RegisterWorkflow(name, fn); err != nil {
@@ -249,17 +284,18 @@ func (d *builder[T]) workflowRegistrar() WorkflowRegistrar {
 	return NewWorkerWorkflowRegistrar(d.temporalWorker)
 }
 
-// Combines registerActivityForTask with the dispatch closure used by
-// CallHTTP/CallGRPC. RunTaskBuilder picks between sub-activities and
-// uses registerActivityForTask directly instead.
+// Builds the dispatch closure used by CallHTTP and CallGRPC. Static builds
+// register a per-task alias and preserve versioned dispatch. Dynamic builds
+// schedule the fixed name directly without worker registration. RunTaskBuilder
+// uses the same preparation and dispatch helpers after selecting a subtype.
 //
 // legacyName is the fixed activity type name recorded by histories created
 // before per-task aliases existed; dispatchActivityName decides at runtime
 // which name to schedule so open executions keep replaying deterministically.
 func (d *builder[T]) buildActivityFunc(fn any, legacyName string) TemporalWorkflowFunc {
-	perTaskName := d.registerActivityForTask(fn)
+	activityName := d.prepareBuiltInActivity(fn, legacyName)
 	return func(ctx workflow.Context, input any, state *utils.State) (any, error) {
-		return d.executeActivity(ctx, dispatchActivityName(ctx, legacyName, perTaskName), input, state)
+		return d.executeActivity(ctx, d.builtInActivityName(ctx, legacyName, activityName), input, state)
 	}
 }
 

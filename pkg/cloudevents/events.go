@@ -36,6 +36,13 @@ type Events struct {
 	Clients []*ClientConfig `json:"clients" validate:"dive"`
 
 	workflow *model.Workflow
+	noOp     bool
+}
+
+// NewNoOpEvents returns an emitter which performs no event creation, clock
+// access, metrics mutation, or client sends.
+func NewNoOpEvents() *Events {
+	return &Events{noOp: true}
 }
 
 func (e *Events) loadClients() error {
@@ -57,6 +64,10 @@ func WithEvent(f func(*sdk.Event)) Option {
 }
 
 func (e *Events) Emit(ctx context.Context, eventType string, opts ...Option) {
+	if e.noOp {
+		return
+	}
+
 	event := sdk.NewEvent()
 
 	for _, o := range opts {

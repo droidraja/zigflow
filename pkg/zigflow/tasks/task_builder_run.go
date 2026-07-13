@@ -60,8 +60,9 @@ func NewRunTaskBuilder(
 type RunTaskBuilder struct {
 	builder[*model.RunTask]
 	// activityName is set by Build() once we know which sub-activity
-	// (Container, Script, Shell) will run. Sub-factories use it as the
-	// dispatch name so SDK metrics carry activity_type=<workflowType>.<taskName>.
+	// (Container, Script, Shell) will run. Static builds store the per-task
+	// alias so SDK metrics carry activity_type=<workflowType>.<taskName>.
+	// Dynamic builds store the fixed activity method name.
 	// Empty for the runWorkflow sub-factory (no activity registration).
 	activityName string
 	// legacyActivityName is the fixed activity type name the chosen
@@ -98,7 +99,7 @@ func (t *RunTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 	}
 
 	if activityFn != nil {
-		t.activityName = t.registerActivityForTask(activityFn)
+		t.activityName = t.prepareBuiltInActivity(activityFn, legacyName)
 		t.legacyActivityName = legacyName
 	}
 
@@ -214,17 +215,17 @@ func (t *RunTaskBuilder) runContainer(ctx workflow.Context, input any, state *ut
 		serviceAccount = t.taskOpts.Run.ServiceAccount
 	}
 
-	name := dispatchActivityName(ctx, t.legacyActivityName, t.activityName)
+	name := t.builtInActivityName(ctx, t.legacyActivityName, t.activityName)
 	return t.executeCommand(ctx, name, input, state, namespace, runtime, serviceAccount)
 }
 
 func (t *RunTaskBuilder) runScript(ctx workflow.Context, input any, state *utils.State) (any, error) {
-	name := dispatchActivityName(ctx, t.legacyActivityName, t.activityName)
+	name := t.builtInActivityName(ctx, t.legacyActivityName, t.activityName)
 	return t.executeCommand(ctx, name, input, state)
 }
 
 func (t *RunTaskBuilder) runShell(ctx workflow.Context, input any, state *utils.State) (any, error) {
-	name := dispatchActivityName(ctx, t.legacyActivityName, t.activityName)
+	name := t.builtInActivityName(ctx, t.legacyActivityName, t.activityName)
 	return t.executeCommand(ctx, name, input, state)
 }
 
