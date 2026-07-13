@@ -30,6 +30,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+const dynamicTryOriginalInput = "original"
+
 func TestTryTaskBuilderGetTasks(t *testing.T) {
 	task := &model.TryTask{
 		Try: &model.TaskList{
@@ -134,6 +136,76 @@ func TestTryTaskBuilderExecRunsCatchOnError(t *testing.T) {
 	var result map[string]any
 	assert.NoError(t, env.GetWorkflowResult(&result))
 	assert.Equal(t, map[string]any{testConstHandledKey: true}, result)
+}
+
+func TestTryTaskBuilderExecUsesDynamicInvocationForTryAndCatch(t *testing.T) {
+	definition := []byte("recorded-try-definition")
+	builder := &TryTaskBuilder{
+		builder: builder[*model.TryTask]{
+			name: "dynamic-try-task",
+			task: &model.TryTask{
+				Try: &model.TaskList{},
+				Catch: &model.TryTaskCatch{
+					As: "failure",
+					Do: &model.TaskList{},
+				},
+			},
+			taskOpts: &TaskOpts{DynamicExecution: NewDynamicExecutionOptions(definition)},
+		},
+		tryChildWorkflowName:   "dynamic-try-child",
+		catchChildWorkflowName: "dynamic-catch-child",
+	}
+
+	fn, err := builder.exec()
+	require.NoError(t, err)
+
+	input := map[string]any{testConstRequest: dynamicTryOriginalInput}
+	state := utils.NewState()
+	state.Input = input
+	state.Env = map[string]any{"DEPLOYMENT": "recorded"}
+	state.Data = map[string]any{"parent": "preserved"}
+
+	var tryInvocation InternalWorkflowInvocation
+	var catchInvocation InternalWorkflowInvocation
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflowWithOptions(
+		func(_ workflow.Context, invocation InternalWorkflowInvocation) (map[string]any, error) {
+			tryInvocation = invocation
+			return nil, temporal.NewApplicationError("kaboom", "MyAppError")
+		},
+		workflow.RegisterOptions{Name: builder.tryChildWorkflowName},
+	)
+	env.RegisterWorkflowWithOptions(
+		func(_ workflow.Context, invocation InternalWorkflowInvocation) (map[string]any, error) {
+			catchInvocation = invocation
+			return map[string]any{testConstHandledKey: true}, nil
+		},
+		workflow.RegisterOptions{Name: builder.catchChildWorkflowName},
+	)
+	env.RegisterWorkflowWithOptions(func(ctx workflow.Context) (any, error) {
+		return fn(ctx, nil, state)
+	}, workflow.RegisterOptions{Name: "dynamic-try-exec"})
+
+	env.ExecuteWorkflow("dynamic-try-exec")
+	require.NoError(t, env.GetWorkflowError())
+
+	for _, invocation := range []InternalWorkflowInvocation{tryInvocation, catchInvocation} {
+		require.Equal(t, InternalWorkflowInvocationVersion, invocation.Version)
+		require.Equal(t, definition, invocation.Definition)
+		require.Equal(t, input, invocation.OriginalInput)
+		require.Equal(t, state.Env, invocation.RecordedEnv)
+		require.Equal(t, input, invocation.State.Input)
+	}
+	require.Equal(t, "preserved", tryInvocation.State.Data["parent"])
+	require.NotContains(t, tryInvocation.State.Data, "failure")
+	require.Equal(t, "preserved", catchInvocation.State.Data["parent"])
+	caughtError, ok := catchInvocation.State.Data["failure"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "MyAppError", caughtError["type"])
+	require.Equal(t, "kaboom", caughtError["message"])
+	require.Contains(t, caughtError, "childWorkflow")
 }
 
 // TestTryTaskBuilderExecPropagatesEndFromTryChild proves that a

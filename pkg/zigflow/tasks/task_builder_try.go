@@ -199,7 +199,11 @@ func (t *TryTaskBuilder) exec() (TemporalWorkflowFunc, error) {
 		childCtx := workflow.WithChildOptions(ctx, opts)
 
 		var res map[string]any
-		if err := workflow.ExecuteChildWorkflow(childCtx, t.tryChildWorkflowName, state.Input, state).Get(ctx, &res); err != nil {
+		if err := workflow.ExecuteChildWorkflow(
+			childCtx,
+			t.tryChildWorkflowName,
+			t.internalInvocationArgs(state.Input, state)...,
+		).Get(ctx, &res); err != nil {
 			// A `then: end` directive inside the try body crosses the
 			// child workflow boundary as a typed Temporal ApplicationError.
 			// That is a deliberate workflow termination, not a failure to
@@ -240,7 +244,11 @@ func (t *TryTaskBuilder) exec() (TemporalWorkflowFunc, error) {
 
 			childCtx := workflow.WithChildOptions(ctx, opts)
 
-			if err := workflow.ExecuteChildWorkflow(childCtx, t.catchChildWorkflowName, catchState.Input, catchState).Get(ctx, &res); err != nil {
+			if err := workflow.ExecuteChildWorkflow(
+				childCtx,
+				t.catchChildWorkflowName,
+				t.internalInvocationArgs(catchState.Input, catchState)...,
+			).Get(ctx, &res); err != nil {
 				// The catch handler itself may emit `then: end`. Propagate
 				// that as flow.ErrEnd rather than wrapping it as a generic
 				// catch-workflow failure.
