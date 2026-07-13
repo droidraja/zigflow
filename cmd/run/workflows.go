@@ -18,6 +18,8 @@ package run
 
 import (
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/matthewmueller/glob"
 	gh "github.com/mrsimonemms/golang-helpers"
@@ -81,6 +83,23 @@ func runValidation(validator *utils.Validator, workflowDefinition any) error {
 // absolute references to the same file are treated as one. Returns an error if
 // no files are found.
 func discoverWorkflowFiles(opts *runOptions) ([]string, error) {
+	files, err := discoverWorkflowFilesOptional(opts)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, gh.FatalError{
+			Msg: "No workflow files found",
+		}
+	}
+
+	return files, nil
+}
+
+// discoverWorkflowFilesOptional performs workflow file discovery without
+// requiring at least one result. Dynamic-only workers use the empty result,
+// while callers which require static files should use discoverWorkflowFiles.
+func discoverWorkflowFilesOptional(opts *runOptions) ([]string, error) {
 	seen := make(map[string]struct{})
 	var files []string
 
@@ -123,13 +142,27 @@ func discoverWorkflowFiles(opts *runOptions) ([]string, error) {
 		}
 	}
 
-	if len(files) == 0 {
-		return nil, gh.FatalError{
-			Msg: "No workflow files found",
-		}
-	}
-
 	return files, nil
+}
+
+// dynamicTaskQueues returns non-empty dynamic task queues in deterministic,
+// deduplicated order.
+func dynamicTaskQueues(opts *runOptions) ([]string, error) {
+	seen := make(map[string]struct{}, len(opts.DynamicTaskQueues))
+	queues := make([]string, 0, len(opts.DynamicTaskQueues))
+	for _, configured := range opts.DynamicTaskQueues {
+		queue := strings.TrimSpace(configured)
+		if queue == "" {
+			return nil, gh.FatalError{Msg: "Dynamic task queue must not be empty"}
+		}
+		if _, ok := seen[queue]; ok {
+			continue
+		}
+		seen[queue] = struct{}{}
+		queues = append(queues, queue)
+	}
+	sort.Strings(queues)
+	return queues, nil
 }
 
 // loadWorkflows parses, optionally validates, and loads the CloudEvents handler
@@ -252,13 +285,60 @@ func validateWorkflowConflicts(registrations []*workflowRegistration) error {
 	return nil
 }
 
+func validateWatchTaskQueues(
+	opts *runOptions,
+	registrations []*workflowRegistration,
+	dynamicQueues []string,
+) error {
+	if !opts.Watch {
+		return nil
+	}
+
+	dynamicSet := make(map[string]struct{}, len(dynamicQueues))
+	for _, taskQueue := range dynamicQueues {
+		dynamicSet[taskQueue] = struct{}{}
+	}
+	for _, reg := range registrations {
+		if _, overlaps := dynamicSet[reg.TaskQueue]; overlaps {
+			return gh.FatalError{
+				Msg: "Watch mode cannot reload static and dynamic registrations independently " +
+					"on a shared task queue; use separate task queues or disable --watch",
+				WithParams: func(l *zerolog.Event) *zerolog.Event {
+					return l.
+						Str("taskQueue", reg.TaskQueue).
+						Str("file", reg.SourceFile).
+						Str("resolution", "use separate task queues or disable --watch")
+				},
+			}
+		}
+	}
+
+	return nil
+}
+
 // prepareRegistrations discovers, loads, and validates all workflow files.
 // It encapsulates the pipeline from path resolution through conflict detection
 // so that runRunCmd stays within a manageable cyclomatic complexity budget.
 func prepareRegistrations(opts *runOptions) ([]*workflowRegistration, error) {
-	files, err := discoverWorkflowFiles(opts)
+	dynamicQueues, err := dynamicTaskQueues(opts)
 	if err != nil {
 		return nil, err
+	}
+
+	files, err := discoverWorkflowFilesOptional(opts)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		if len(dynamicQueues) == 0 {
+			return nil, gh.FatalError{Msg: "No workflow files found"}
+		}
+		if opts.Watch {
+			return nil, gh.FatalError{
+				Msg: "Watch mode requires at least one static workflow file; dynamic-only watch is not supported",
+			}
+		}
+		return []*workflowRegistration{}, nil
 	}
 
 	log.Debug().Int("count", len(files)).Msg("Discovered workflow files")
@@ -274,6 +354,9 @@ func prepareRegistrations(opts *runOptions) ([]*workflowRegistration, error) {
 	}
 
 	if err := validateWorkflowConflicts(registrations); err != nil {
+		return nil, err
+	}
+	if err := validateWatchTaskQueues(opts, registrations, dynamicQueues); err != nil {
 		return nil, err
 	}
 

@@ -63,6 +63,7 @@ type runOptions struct {
 	EnvPrefix                              string
 	DirectoryGlob                          string
 	DirectoryPath                          string
+	DynamicTaskQueues                      []string
 	Files                                  []string
 	GracefulShutdownTimeout                time.Duration
 	MaxConcurrentActivityExecutionSize     int
@@ -124,7 +125,7 @@ func runRunCmd(ctx context.Context, opts *runOptions) error {
 		return err
 	}
 
-	startedWorkers, err := startInitialWorkers(ctx, temporalClient, registrations, envvars, opts)
+	workersByTaskQueue, startedWorkers, err := startInitialWorkers(ctx, temporalClient, registrations, envvars, opts)
 	if err != nil {
 		return err
 	}
@@ -139,15 +140,26 @@ func runRunCmd(ctx context.Context, opts *runOptions) error {
 		}
 
 		log.Info().Strs("files", watchFiles).Msg("Watch mode enabled. Not recommended for production use.")
+		dynamicQueues, err := dynamicTaskQueues(opts)
+		if err != nil {
+			for _, w := range startedWorkers {
+				w.Stop()
+			}
+			return err
+		}
+		dynamicWorkers, staticWorkers := splitWatchWorkers(workersByTaskQueue, dynamicQueues)
 
-		// runWatchMode owns worker lifecycle; only telemetry needs cleanup here.
+		// Dynamic workers remain stable while runWatchMode replaces only static
+		// workers. The task queue sets are disjoint, as validated during
+		// registration preparation.
 		defer func() {
+			stopWorkerList(dynamicWorkers)
 			if opts.Telemetry != nil {
 				opts.Telemetry.Shutdown()
 			}
 		}()
 
-		return runWatchMode(ctx, watchFiles, temporalClient, opts, envvars, startedWorkers)
+		return runWatchMode(ctx, watchFiles, temporalClient, opts, envvars, staticWorkers)
 	}
 
 	// Registered second, runs first (LIFO). Workers are stopped before the
@@ -184,6 +196,10 @@ workflow executions defined in the provided workflow definitions.
 Workflow definitions are loaded from the files specified with --file, from a
 directory matched with --dir and --glob, or from both sources combined. All
 definitions are validated before any worker is started.
+
+Dynamic workflow workers may be started with --dynamic-task-queue. Static and
+dynamic registrations may share a task queue. At least one workflow file or
+dynamic task queue is required.
 
 Workflows that share a task queue (defined by document.taskQueue) are
 registered on a single shared worker. Each distinct task queue gets its own

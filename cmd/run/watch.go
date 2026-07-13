@@ -30,6 +30,8 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
+var launchWorkersForWatch = launchWorkers
+
 // newStoppedTimer creates a timer and immediately stops it, draining any
 // pending tick. Use timer.Reset(d) to arm it for the first time.
 func newStoppedTimer(d time.Duration) *time.Timer {
@@ -82,7 +84,7 @@ func handleDebounce(
 	sort.Strings(names)
 	log.Warn().Str("files", strings.Join(names, ", ")).Msg("Watch: reloading workers")
 
-	next, loadErr := launchWorkers(temporalClient, opts, envvars)
+	next, loadErr := launchWorkersForWatch(temporalClient, staticReloadOptions(opts), envvars)
 	if loadErr != nil {
 		log.Error().Err(loadErr).Msg("Watch: reload failed, keeping existing workers")
 	} else {
@@ -94,6 +96,15 @@ func handleDebounce(
 		log.Error().Err(err).Msg("Watch: failed to refresh file watches")
 	}
 	return current, make(map[string]struct{})
+}
+
+// staticReloadOptions copies the command options and removes dynamic queues.
+// Dynamic workers stay running throughout watch mode, so a static file change
+// must not recreate or re-register their fallback handlers.
+func staticReloadOptions(opts *runOptions) *runOptions {
+	reloadOpts := *opts
+	reloadOpts.DynamicTaskQueues = nil
+	return &reloadOpts
 }
 
 // refreshWatcher removes all currently watched paths and re-adds the resolved
@@ -146,6 +157,8 @@ func runWatchMode(
 	envvars map[string]any,
 	current []worker.Worker,
 ) error {
+	defer func() { stopWorkerList(current) }()
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("watch: create watcher: %w", err)
@@ -161,8 +174,6 @@ func runWatchMode(
 		Int("count", len(files)).
 		Dur("debounce", opts.WatchDebounce).
 		Msg("Watch: watching workflow files for changes")
-
-	defer func() { stopWorkerList(current) }()
 
 	debounce := newStoppedTimer(opts.WatchDebounce)
 

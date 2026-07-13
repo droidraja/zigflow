@@ -27,4 +27,10 @@ const (
 	testSourceFileB          = "b.yaml"
 	testWorkflowType         = "wf"
 	testRemoteCodecEndpoint  = "http://localhost:8080"
+	testDynamicQueue         = "dynamic-queue"
+	testStaticQueue          = "static-queue"
+	testSharedQueue          = "shared-queue"
+	testStaticWorkflow       = "static-workflow"
+	testQueueA               = "queue-a"
+	testQueueB               = "queue-b"
 )

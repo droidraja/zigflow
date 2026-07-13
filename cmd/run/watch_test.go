@@ -24,6 +24,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
 
@@ -288,4 +289,41 @@ func TestHandleDebounce_KeepsCurrentWorkersOnReloadFailure(t *testing.T) {
 
 	assert.Empty(t, remaining, "changedFiles must be cleared regardless of reload outcome")
 	assert.Equal(t, current, next, "current workers must be unchanged when reload fails")
+}
+
+func TestHandleDebounce_HybridWatchReloadsOnlyStaticWorkers(t *testing.T) {
+	dir := t.TempDir()
+	file := writeTempWorkflow(t, dir, testStaticQueue, testStaticWorkflow)
+
+	w, err := fsnotify.NewWatcher()
+	require.NoError(t, err)
+	defer func() { _ = w.Close() }()
+	require.NoError(t, w.Add(file))
+
+	originalLauncher := launchWorkersForWatch
+	var capturedOpts *runOptions
+	launchWorkersForWatch = func(
+		_ client.Client,
+		opts *runOptions,
+		_ map[string]any,
+	) ([]worker.Worker, error) {
+		capturedOpts = opts
+		return nil, nil
+	}
+	defer func() { launchWorkersForWatch = originalLauncher }()
+
+	opts := &runOptions{
+		Files:             []string{file},
+		DirectoryGlob:     testDirectoryGlob,
+		DynamicTaskQueues: []string{testDynamicQueue},
+	}
+	changedFiles := map[string]struct{}{file: {}}
+
+	next, remaining := handleDebounce(w, nil, opts, nil, changedFiles, nil)
+
+	assert.Nil(t, next)
+	assert.Empty(t, remaining)
+	require.NotNil(t, capturedOpts)
+	assert.Empty(t, capturedOpts.DynamicTaskQueues, "dynamic fallback must not be registered during static reload")
+	assert.Equal(t, []string{testDynamicQueue}, opts.DynamicTaskQueues, "original worker configuration must stay unchanged")
 }

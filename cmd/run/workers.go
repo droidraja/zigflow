@@ -32,6 +32,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/contrib/sysinfo"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 )
 
 // newTemporalConnection is the function used to establish a Temporal client. It
@@ -49,6 +50,21 @@ var newWorker = worker.New
 // package-level variable so tests can substitute a test double that captures
 // the arguments passed in, without registering a real workflow.
 var newWorkflow = zigflow.NewWorkflow
+
+// registerSharedActivity and registerDynamicWorkflow are narrow registration
+// seams used by command tests to record worker lifecycle without starting a
+// Temporal server.
+var registerSharedActivity = func(w worker.Worker, activity any) {
+	w.RegisterActivity(activity)
+}
+
+var registerDynamicWorkflow = func(
+	w worker.Worker,
+	handler any,
+	opts workflow.DynamicRegisterOptions,
+) {
+	w.RegisterDynamicWorkflow(handler, opts)
+}
 
 // runScheduleUpdates updates Temporal schedules for all workflow registrations
 // before any worker is started.
@@ -124,71 +140,49 @@ func buildWorkersByTaskQueue(
 		}
 	}
 
-	workers := make(map[string]worker.Worker)
+	dynamicQueues, err := dynamicTaskQueues(opts)
+	if err != nil {
+		return nil, err
+	}
 
+	workerOpts, err := temporalWorkerOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	queueSet := make(map[string]struct{}, len(registrations)+len(dynamicQueues))
 	for _, reg := range registrations {
-		w, ok := workers[reg.TaskQueue]
-		if !ok {
-			pollerAutoscaler := worker.NewPollerBehaviorAutoscaling(worker.PollerBehaviorAutoscalingOptions{})
+		queueSet[reg.TaskQueue] = struct{}{}
+	}
+	for _, taskQueue := range dynamicQueues {
+		queueSet[taskQueue] = struct{}{}
+	}
 
-			var deploymentOptions worker.DeploymentOptions
-			if opts.EnableVersioning {
-				buildID := opts.DeploymentBuildID
-				deployName := opts.DeploymentName
+	queueNames := make([]string, 0, len(queueSet))
+	for taskQueue := range queueSet {
+		queueNames = append(queueNames, taskQueue)
+	}
+	sort.Strings(queueNames)
 
-				if buildID == "" {
-					return nil, fmt.Errorf("temporal-worker-build-id required when versioning enabled")
-				}
-				if deployName == "" {
-					return nil, fmt.Errorf("temporal-deployment-name required when versioning enabled")
-				}
+	workers := make(map[string]worker.Worker, len(queueNames))
+	for _, taskQueue := range queueNames {
+		w := newWorker(temporalClient, taskQueue, workerOpts)
+		workers[taskQueue] = w
+		log.Debug().Str("task-queue", taskQueue).Msg("Created worker for task queue")
 
-				log.Debug().
-					Str("buildId", buildID).
-					Str("deploymentName", deployName).
-					Str("defaultVersioningBehaviour", opts.DefaultVersioningBehaviour). // Use the text version
-					Msg("Versioning enabled")
-
-				deploymentOptions = worker.DeploymentOptions{
-					UseVersioning:             opts.EnableVersioning,
-					DefaultVersioningBehavior: opts.defaultVersioningBehaviour,
-					Version: worker.WorkerDeploymentVersion{
-						BuildID:        buildID,
-						DeploymentName: deployName,
-					},
-				}
-			}
-
-			w = newWorker(temporalClient, reg.TaskQueue, worker.Options{
-				WorkflowTaskPollerBehavior:             pollerAutoscaler,
-				ActivityTaskPollerBehavior:             pollerAutoscaler,
-				NexusTaskPollerBehavior:                pollerAutoscaler,
-				WorkerStopTimeout:                      opts.GracefulShutdownTimeout,
-				MaxConcurrentActivityExecutionSize:     opts.MaxConcurrentActivityExecutionSize,
-				MaxConcurrentWorkflowTaskExecutionSize: opts.MaxConcurrentWorkflowTaskExecutionSize,
-				TaskQueueActivitiesPerSecond:           opts.TaskQueueActivitiesPerSecond,
-				DeploymentOptions:                      deploymentOptions,
-				SysInfoProvider:                        sysinfo.SysInfoProvider(),
-			})
-			workers[reg.TaskQueue] = w
-			log.Debug().Str("task-queue", reg.TaskQueue).Msg("Created worker for task queue")
-			taskActivities := tasks.ActivitiesList()
-			log.Debug().
-				Str("task-queue", reg.TaskQueue).
-				Int("count", len(taskActivities)).
-				Msg("Registering shared activities on worker")
-			for _, a := range taskActivities {
-				w.RegisterActivity(a)
-			}
+		taskActivities := tasks.ActivitiesList()
+		log.Debug().
+			Str("task-queue", taskQueue).
+			Int("count", len(taskActivities)).
+			Msg("Registering shared activities on worker")
+		for _, activity := range taskActivities {
+			registerSharedActivity(w, activity)
 		}
+	}
 
-		taskOpts := &tasks.TaskOpts{
-			Run: &tasks.RunTaskOpts{
-				Namespace:      opts.ContainerRuntimeNamespace,
-				Runtime:        activities.ContainerRuntime(opts.ContainerRuntime),
-				ServiceAccount: opts.ContainerRuntimeServiceAccount,
-			},
-		}
+	taskOpts := buildTaskOptions(opts)
+	for _, reg := range registrations {
+		w := workers[reg.TaskQueue]
 
 		log.Info().
 			Str("task-queue", reg.TaskQueue).
@@ -209,7 +203,87 @@ func buildWorkersByTaskQueue(
 		}
 	}
 
+	dynamicRegisterOpts := dynamicWorkflowRegisterOptions(opts)
+	for _, taskQueue := range dynamicQueues {
+		log.Info().Str("task-queue", taskQueue).Msg("Registering dynamic workflow fallback")
+		registerDynamicWorkflow(
+			workers[taskQueue],
+			zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{
+				Envvars:  envvars,
+				TaskOpts: taskOpts,
+			}),
+			dynamicRegisterOpts,
+		)
+	}
+
 	return workers, nil
+}
+
+func buildTaskOptions(opts *runOptions) *tasks.TaskOpts {
+	return &tasks.TaskOpts{
+		Run: &tasks.RunTaskOpts{
+			Namespace:      opts.ContainerRuntimeNamespace,
+			Runtime:        activities.ContainerRuntime(opts.ContainerRuntime),
+			ServiceAccount: opts.ContainerRuntimeServiceAccount,
+		},
+	}
+}
+
+func temporalWorkerOptions(opts *runOptions) (worker.Options, error) {
+	pollerAutoscaler := worker.NewPollerBehaviorAutoscaling(worker.PollerBehaviorAutoscalingOptions{})
+
+	var deploymentOptions worker.DeploymentOptions
+	if opts.EnableVersioning {
+		if opts.DeploymentBuildID == "" {
+			return worker.Options{}, fmt.Errorf("temporal-worker-build-id required when versioning enabled")
+		}
+		if opts.DeploymentName == "" {
+			return worker.Options{}, fmt.Errorf("temporal-deployment-name required when versioning enabled")
+		}
+
+		log.Debug().
+			Str("buildId", opts.DeploymentBuildID).
+			Str("deploymentName", opts.DeploymentName).
+			Str("defaultVersioningBehaviour", opts.DefaultVersioningBehaviour).
+			Msg("Versioning enabled")
+
+		deploymentOptions = worker.DeploymentOptions{
+			UseVersioning:             true,
+			DefaultVersioningBehavior: opts.defaultVersioningBehaviour,
+			Version: worker.WorkerDeploymentVersion{
+				BuildID:        opts.DeploymentBuildID,
+				DeploymentName: opts.DeploymentName,
+			},
+		}
+	}
+
+	return worker.Options{
+		WorkflowTaskPollerBehavior:             pollerAutoscaler,
+		ActivityTaskPollerBehavior:             pollerAutoscaler,
+		NexusTaskPollerBehavior:                pollerAutoscaler,
+		WorkerStopTimeout:                      opts.GracefulShutdownTimeout,
+		MaxConcurrentActivityExecutionSize:     opts.MaxConcurrentActivityExecutionSize,
+		MaxConcurrentWorkflowTaskExecutionSize: opts.MaxConcurrentWorkflowTaskExecutionSize,
+		TaskQueueActivitiesPerSecond:           opts.TaskQueueActivitiesPerSecond,
+		DeploymentOptions:                      deploymentOptions,
+		SysInfoProvider:                        sysinfo.SysInfoProvider(),
+	}, nil
+}
+
+func dynamicWorkflowRegisterOptions(opts *runOptions) workflow.DynamicRegisterOptions {
+	if !opts.EnableVersioning {
+		return workflow.DynamicRegisterOptions{}
+	}
+
+	return workflow.DynamicRegisterOptions{
+		LoadDynamicRuntimeOptions: func(
+			workflow.LoadDynamicRuntimeOptionsDetails,
+		) (workflow.DynamicRuntimeOptions, error) {
+			return workflow.DynamicRuntimeOptions{
+				VersioningBehavior: opts.defaultVersioningBehaviour,
+			}, nil
+		},
+	}
 }
 
 // launchWorkers prepares registrations, builds workers, and starts them.
@@ -284,10 +358,10 @@ func startInitialWorkers(
 	registrations []*workflowRegistration,
 	envvars map[string]any,
 	opts *runOptions,
-) ([]worker.Worker, error) {
+) (map[string]worker.Worker, []worker.Worker, error) {
 	workers, err := buildWorkersByTaskQueue(tc, registrations, envvars, opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	taskQueues := make([]string, 0, len(workers))
@@ -300,7 +374,41 @@ func startInitialWorkers(
 		opts.Telemetry.StartWorker()
 	}
 
-	return startAllWorkers(workers)
+	started, err := startAllWorkers(workers)
+	if err != nil {
+		return nil, nil, err
+	}
+	return workers, started, nil
+}
+
+// splitWatchWorkers separates the initially started workers into the dynamic
+// workers which remain stable for the lifetime of watch mode and the static
+// workers which may be replaced after file changes. Registration preparation
+// rejects overlapping task queues before this function is called.
+func splitWatchWorkers(
+	workers map[string]worker.Worker,
+	dynamicTaskQueues []string,
+) (dynamicWorkers, staticWorkers []worker.Worker) {
+	dynamicSet := make(map[string]struct{}, len(dynamicTaskQueues))
+	for _, taskQueue := range dynamicTaskQueues {
+		dynamicSet[taskQueue] = struct{}{}
+	}
+
+	taskQueues := make([]string, 0, len(workers))
+	for taskQueue := range workers {
+		taskQueues = append(taskQueues, taskQueue)
+	}
+	sort.Strings(taskQueues)
+
+	for _, taskQueue := range taskQueues {
+		if _, dynamic := dynamicSet[taskQueue]; dynamic {
+			dynamicWorkers = append(dynamicWorkers, workers[taskQueue])
+		} else {
+			staticWorkers = append(staticWorkers, workers[taskQueue])
+		}
+	}
+
+	return dynamicWorkers, staticWorkers
 }
 
 // waitForShutdown blocks until the process receives an interrupt signal or the

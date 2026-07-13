@@ -210,6 +210,83 @@ func TestPrepareRegistrations_HappyPath(t *testing.T) {
 	assert.Len(t, regs, 2)
 }
 
+func TestPrepareRegistrations_DynamicOnlyAllowsNoFiles(t *testing.T) {
+	registrations, err := prepareRegistrations(&runOptions{
+		DirectoryGlob:     testDirectoryGlob,
+		DynamicTaskQueues: []string{testDynamicQueue},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, registrations)
+}
+
+func TestPrepareRegistrations_NeitherStaticNorDynamicFails(t *testing.T) {
+	_, err := prepareRegistrations(&runOptions{DirectoryGlob: testDirectoryGlob})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "No workflow files found")
+}
+
+func TestPrepareRegistrations_DynamicOnlyWatchFails(t *testing.T) {
+	_, err := prepareRegistrations(&runOptions{
+		DirectoryGlob:     testDirectoryGlob,
+		DynamicTaskQueues: []string{testDynamicQueue},
+		Watch:             true,
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "dynamic-only watch is not supported")
+}
+
+func TestPrepareRegistrations_HybridWatchIsAllowed(t *testing.T) {
+	dir := t.TempDir()
+	file := writeTempWorkflow(t, dir, testStaticQueue, testStaticWorkflow)
+
+	registrations, err := prepareRegistrations(&runOptions{
+		Files:             []string{file},
+		DirectoryGlob:     testDirectoryGlob,
+		DynamicTaskQueues: []string{testDynamicQueue},
+		Watch:             true,
+		Validate:          false,
+	})
+
+	require.NoError(t, err)
+	assert.Len(t, registrations, 1)
+}
+
+func TestPrepareRegistrations_HybridWatchRejectsSharedTaskQueue(t *testing.T) {
+	dir := t.TempDir()
+	file := writeTempWorkflow(t, dir, testSharedQueue, testStaticWorkflow)
+
+	_, err := prepareRegistrations(&runOptions{
+		Files:             []string{file},
+		DirectoryGlob:     testDirectoryGlob,
+		DynamicTaskQueues: []string{testSharedQueue},
+		Watch:             true,
+		Validate:          false,
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "cannot reload static and dynamic registrations independently")
+	assert.ErrorContains(t, err, "use separate task queues or disable --watch")
+}
+
+func TestDynamicTaskQueues_DeduplicatesAndSorts(t *testing.T) {
+	queues, err := dynamicTaskQueues(&runOptions{
+		DynamicTaskQueues: []string{testQueueB, testQueueA, testQueueB},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{testQueueA, testQueueB}, queues)
+}
+
+func TestDynamicTaskQueues_RejectsEmptyQueue(t *testing.T) {
+	_, err := dynamicTaskQueues(&runOptions{DynamicTaskQueues: []string{"  "}})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "Dynamic task queue must not be empty")
+}
+
 // TestLoadWorkflows_ValidateFlagControlsSchemaValidation verifies that the
 // validate flag is threaded through to schema validation in the loader.
 func TestLoadWorkflows_ValidateFlagControlsSchemaValidation(t *testing.T) {

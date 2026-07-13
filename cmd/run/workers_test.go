@@ -30,6 +30,7 @@ import (
 	"github.com/zigflow/zigflow/pkg/zigflow/tasks"
 	"go.temporal.io/sdk/client"
 	sdkworker "go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 )
 
 // applyOptions applies a slice of temporal.Options to a fresh client.Options
@@ -257,6 +258,182 @@ func TestBuildWorkersByTaskQueue(t *testing.T) {
 			}
 		})
 	}
+}
+
+type capturedDynamicRegistration struct {
+	worker  sdkworker.Worker
+	handler any
+	opts    workflow.DynamicRegisterOptions
+}
+
+func TestBuildWorkersByTaskQueue_StaticAndDynamicAcceptanceMatrix(t *testing.T) {
+	tests := []struct {
+		name             string
+		registrations    []*workflowRegistration
+		dynamicQueues    []string
+		wantQueues       []string
+		wantStaticCount  int
+		wantDynamicCount int
+	}{
+		{
+			name: "static files only",
+			registrations: []*workflowRegistration{
+				{TaskQueue: testStaticQueue, WorkflowType: testStaticWorkflow},
+			},
+			wantQueues:      []string{testStaticQueue},
+			wantStaticCount: 1,
+		},
+		{
+			name:             "dynamic queue only",
+			dynamicQueues:    []string{testDynamicQueue},
+			wantQueues:       []string{testDynamicQueue},
+			wantDynamicCount: 1,
+		},
+		{
+			name: "static and dynamic on different queues",
+			registrations: []*workflowRegistration{
+				{TaskQueue: testStaticQueue, WorkflowType: testStaticWorkflow},
+			},
+			dynamicQueues:    []string{testDynamicQueue},
+			wantQueues:       []string{testDynamicQueue, testStaticQueue},
+			wantStaticCount:  1,
+			wantDynamicCount: 1,
+		},
+		{
+			name: "static and dynamic on the same queue",
+			registrations: []*workflowRegistration{
+				{TaskQueue: testSharedQueue, WorkflowType: testStaticWorkflow},
+			},
+			dynamicQueues:    []string{testSharedQueue},
+			wantQueues:       []string{testSharedQueue},
+			wantStaticCount:  1,
+			wantDynamicCount: 1,
+		},
+		{
+			name:             "repeated dynamic queue",
+			dynamicQueues:    []string{testDynamicQueue, testDynamicQueue},
+			wantQueues:       []string{testDynamicQueue},
+			wantDynamicCount: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var created []capturedWorker
+			defer stubNewWorker(&created)()
+
+			originalActivity := registerSharedActivity
+			var activityWorkers []sdkworker.Worker
+			registerSharedActivity = func(w sdkworker.Worker, _ any) {
+				activityWorkers = append(activityWorkers, w)
+			}
+			defer func() { registerSharedActivity = originalActivity }()
+
+			originalWorkflow := newWorkflow
+			var staticWorkers []sdkworker.Worker
+			newWorkflow = func(
+				w sdkworker.Worker,
+				_ *model.Workflow,
+				_ map[string]any,
+				_ *cloudevents.Events,
+				_ *telemetry.Telemetry,
+				_ *tasks.TaskOpts,
+			) error {
+				staticWorkers = append(staticWorkers, w)
+				return nil
+			}
+			defer func() { newWorkflow = originalWorkflow }()
+
+			originalDynamic := registerDynamicWorkflow
+			var dynamicRegistrations []capturedDynamicRegistration
+			registerDynamicWorkflow = func(
+				w sdkworker.Worker,
+				handler any,
+				opts workflow.DynamicRegisterOptions,
+			) {
+				dynamicRegistrations = append(dynamicRegistrations, capturedDynamicRegistration{
+					worker: w, handler: handler, opts: opts,
+				})
+			}
+			defer func() { registerDynamicWorkflow = originalDynamic }()
+
+			workers, err := buildWorkersByTaskQueue(nil, test.registrations, map[string]any{"key": "value"}, &runOptions{
+				DynamicTaskQueues: test.dynamicQueues,
+			})
+			require.NoError(t, err)
+			require.Len(t, workers, len(test.wantQueues))
+			require.Len(t, created, len(test.wantQueues))
+			require.Len(t, staticWorkers, test.wantStaticCount)
+			require.Len(t, dynamicRegistrations, test.wantDynamicCount)
+
+			createdQueues := make([]string, 0, len(created))
+			for _, capture := range created {
+				createdQueues = append(createdQueues, capture.taskQueue)
+			}
+			assert.Equal(t, test.wantQueues, createdQueues)
+
+			for _, taskQueue := range test.wantQueues {
+				workerForQueue := workers[taskQueue]
+				count := 0
+				for _, activityWorker := range activityWorkers {
+					if activityWorker == workerForQueue {
+						count++
+					}
+				}
+				assert.Equal(t, len(tasks.ActivitiesList()), count, "shared activities on %s", taskQueue)
+			}
+
+			for index, reg := range test.registrations {
+				assert.Equal(t, workers[reg.TaskQueue], staticWorkers[index])
+			}
+			for _, dynamic := range dynamicRegistrations {
+				assert.NotNil(t, dynamic.handler)
+				assert.Contains(t, workers, taskQueueForWorker(workers, dynamic.worker))
+			}
+		})
+	}
+}
+
+func taskQueueForWorker(workers map[string]sdkworker.Worker, target sdkworker.Worker) string {
+	for taskQueue, candidate := range workers {
+		if candidate == target {
+			return taskQueue
+		}
+	}
+	return ""
+}
+
+func TestDynamicWorkflowRegisterOptions_ProvidesVersioningBehaviour(t *testing.T) {
+	options := dynamicWorkflowRegisterOptions(&runOptions{
+		EnableVersioning:           true,
+		defaultVersioningBehaviour: workflow.VersioningBehaviorPinned,
+	})
+	require.NotNil(t, options.LoadDynamicRuntimeOptions)
+
+	runtimeOptions, err := options.LoadDynamicRuntimeOptions(workflow.LoadDynamicRuntimeOptionsDetails{})
+	require.NoError(t, err)
+	assert.Equal(t, workflow.VersioningBehaviorPinned, runtimeOptions.VersioningBehavior)
+}
+
+func TestDynamicWorkflowRegisterOptions_DisabledVersioningNeedsNoLoader(t *testing.T) {
+	options := dynamicWorkflowRegisterOptions(&runOptions{})
+	assert.Nil(t, options.LoadDynamicRuntimeOptions)
+}
+
+func TestSplitWatchWorkers_KeepsDynamicWorkersStable(t *testing.T) {
+	workers := map[string]sdkworker.Worker{
+		"dynamic-a": nil,
+		"dynamic-b": nil,
+		"static":    nil,
+	}
+
+	dynamicWorkers, staticWorkers := splitWatchWorkers(
+		workers,
+		[]string{"dynamic-b", "dynamic-a"},
+	)
+
+	assert.Len(t, dynamicWorkers, 2)
+	assert.Len(t, staticWorkers, 1)
 }
 
 // ---- versioning identity errors ----

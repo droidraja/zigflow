@@ -19,6 +19,7 @@ package run
 import (
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zigflow/zigflow/pkg/telemetry"
@@ -28,6 +29,7 @@ func TestNewRunCmd_Flags(t *testing.T) {
 	cmd := New(func() *telemetry.Telemetry { return nil })
 
 	assert.NotNil(t, cmd.Flags().Lookup("file"))
+	assert.NotNil(t, cmd.Flags().Lookup("dynamic-task-queue"))
 	assert.NotNil(t, cmd.Flags().Lookup("validate"))
 	assert.NotNil(t, cmd.Flags().Lookup("temporal-address"))
 	assert.NotNil(t, cmd.Flags().Lookup("temporal-namespace"))
@@ -53,6 +55,25 @@ func TestNewRunCmd_Flags(t *testing.T) {
 	assert.NotNil(t, cmd.Flags().Lookup("container-runtime"))
 	assert.NotNil(t, cmd.Flags().Lookup("container-runtime-namespace"))
 	assert.NotNil(t, cmd.Flags().Lookup("container-runtime-service-account"))
+}
+
+func TestNewRunCmd_DynamicTaskQueueFlagIsRepeatable(t *testing.T) {
+	cmd := New(func() *telemetry.Telemetry { return nil })
+
+	require.NoError(t, cmd.Flags().Set("dynamic-task-queue", testQueueA))
+	require.NoError(t, cmd.Flags().Set("dynamic-task-queue", testQueueB))
+
+	assert.Equal(t, "[queue-a,queue-b]", cmd.Flags().Lookup("dynamic-task-queue").Value.String())
+}
+
+func TestNewRunCmd_DynamicTaskQueueFlagUsesViperDefault(t *testing.T) {
+	previous := viper.GetStringSlice("dynamic_task_queue")
+	viper.Set("dynamic_task_queue", []string{"configured-queue"})
+	t.Cleanup(func() { viper.Set("dynamic_task_queue", previous) })
+
+	cmd := New(func() *telemetry.Telemetry { return nil })
+
+	assert.Equal(t, "[configured-queue]", cmd.Flags().Lookup("dynamic-task-queue").Value.String())
 }
 
 // ---- --temporal-server-name flag ----

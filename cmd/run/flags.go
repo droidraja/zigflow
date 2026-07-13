@@ -47,6 +47,11 @@ func registerWorkflowSourceFlags(cmd *cobra.Command, opts *runOptions) {
 		viper.GetStringSlice("workflow_file"), "Path to workflow file (may be specified multiple times)",
 	)
 
+	cmd.Flags().StringSliceVar(
+		&opts.DynamicTaskQueues, "dynamic-task-queue",
+		viper.GetStringSlice("dynamic_task_queue"), "Task queue for dynamic workflows (may be specified multiple times)",
+	)
+
 	viper.SetDefault("workflow_directory_glob", "*.{yaml,yml,json}")
 	cmd.Flags().StringVar(
 		&opts.DirectoryGlob, "glob",
