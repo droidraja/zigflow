@@ -116,6 +116,14 @@ func (t *DoTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error creating task builder: %w", err)
 		}
+		// In a multiple-root dynamic definition each top-level Do is itself
+		// dispatched as a root workflow with nil state. Carry the recorded
+		// environment into those closures so they initialise the same root
+		// state as a single-root definition. Static nested Do options remain
+		// unchanged for history compatibility.
+		if nestedDo, ok := builder.(*DoTaskBuilder); ok && t.taskOpts.DynamicExecution != nil {
+			nestedDo.opts.Envvars = t.opts.Envvars
+		}
 
 		// Build the task and store it for use
 		l.Debug().Msg("Building task")
@@ -288,7 +296,7 @@ func (t *DoTaskBuilder) continueAsNew(
 
 	logger.Info("Continuing as new", "taskId", taskID)
 	state.CANStartFrom = utils.Ptr(taskID)
-	return workflow.NewContinueAsNewError(ctx, wfn, input, state)
+	return workflow.NewContinueAsNewError(ctx, wfn, t.internalInvocationArgs(input, state)...)
 }
 
 func (t *DoTaskBuilder) iterateTasks(
@@ -559,7 +567,7 @@ func (t *DoTaskBuilder) executeRedirect(
 		"task", task.Name, "target", target)
 
 	var res any
-	err := workflow.ExecuteChildWorkflow(ctx, target, input, state).Get(ctx, &res)
+	err := workflow.ExecuteChildWorkflow(ctx, target, t.internalInvocationArgs(input, state)...).Get(ctx, &res)
 	if err != nil {
 		if endPayload, isEnd := flow.DecodeEndApplicationError(err); isEnd {
 			logger.Info("Redirect target signalled end; propagating to caller",

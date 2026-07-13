@@ -17,6 +17,7 @@
 package tasks
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
 	"sort"
@@ -56,6 +57,33 @@ type TaskOpts struct {
 	Run                    *RunTaskOpts
 	WorkflowRegistrar      WorkflowRegistrar
 	ActivityDispatchPolicy ActivityDispatchPolicy
+	DynamicExecution       *DynamicExecutionOptions
+}
+
+// InternalWorkflowInvocationVersion is the current internal boundary contract.
+const InternalWorkflowInvocationVersion = 1
+
+// DynamicExecutionOptions contains the immutable definition snapshot captured
+// by a dynamic workflow closure tree. The definition remains outside State so
+// built-in activity payloads do not include it.
+type DynamicExecutionOptions struct {
+	definition []byte
+}
+
+// NewDynamicExecutionOptions copies definition into immutable build options.
+func NewDynamicExecutionOptions(definition []byte) *DynamicExecutionOptions {
+	return &DynamicExecutionOptions{definition: bytes.Clone(definition)}
+}
+
+// InternalWorkflowInvocation is the versioned one-argument contract used at
+// dynamic Zigflow workflow boundaries. Static boundaries retain their
+// historical two-argument input and state contract.
+type InternalWorkflowInvocation struct {
+	Version       int            `json:"internalVersion"`
+	Definition    []byte         `json:"definition"`
+	RecordedEnv   map[string]any `json:"recordedEnv"`
+	OriginalInput any            `json:"input,omitempty"`
+	State         *utils.State   `json:"state"`
 }
 
 // ActivityDispatchPolicy controls how built-in activities are registered and
@@ -282,6 +310,23 @@ func (d *builder[T]) workflowRegistrar() WorkflowRegistrar {
 		return d.taskOpts.WorkflowRegistrar
 	}
 	return NewWorkerWorkflowRegistrar(d.temporalWorker)
+}
+
+// internalInvocationArgs preserves the historical (input, state) Temporal
+// argument shape for static workflows. Dynamic closures pass one versioned
+// envelope so the fallback can deterministically rebuild the same registry.
+func (d *builder[T]) internalInvocationArgs(input any, state *utils.State) []any {
+	if d.taskOpts == nil || d.taskOpts.DynamicExecution == nil {
+		return []any{input, state}
+	}
+
+	return []any{InternalWorkflowInvocation{
+		Version:       InternalWorkflowInvocationVersion,
+		Definition:    bytes.Clone(d.taskOpts.DynamicExecution.definition),
+		RecordedEnv:   swUtils.DeepClone(state.Env),
+		OriginalInput: input,
+		State:         state,
+	}}
 }
 
 // Builds the dispatch closure used by CallHTTP and CallGRPC. Static builds

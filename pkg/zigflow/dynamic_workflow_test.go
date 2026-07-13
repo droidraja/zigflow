@@ -17,6 +17,7 @@
 package zigflow_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -26,12 +27,18 @@ import (
 	"github.com/zigflow/zigflow/pkg/zigflow"
 	"github.com/zigflow/zigflow/pkg/zigflow/tasks"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/workflow"
 )
 
 const (
 	dynamicTestTaskQueue       = "dynamic-tests"
 	dynamicSetSwitchType       = "dynamic-set-switch"
 	dynamicInputApplicationErr = "zigflow.dynamic.input"
+	dynamicRecordedEnvironment = "recorded"
+	dynamicRequestKey          = "request"
+	dynamicOriginalInput       = "original-user-input"
+	dynamicRecordedEnv         = "recorded-env"
 )
 
 func TestDynamicWorkflowExecutesFlatDefinitionWithEnvelopeInput(t *testing.T) {
@@ -78,6 +85,166 @@ func TestDynamicWorkflowCapturesImmutableEnvironmentOptions(t *testing.T) {
 		"environment": "captured",
 		"input":       "user-input",
 	})
+}
+
+func TestDynamicWorkflowDispatchesMultipleRootsAndRedirectsLocally(t *testing.T) {
+	definition := []byte(`document:
+  dsl: 1.0.0
+  taskQueue: dynamic-tests
+  workflowType: ignored-for-multiple-roots
+  version: 0.0.1
+do:
+  - source:
+      do:
+        - initialise:
+            set:
+              source: complete
+        - choose:
+            switch:
+              - matched:
+                  when: ${ true }
+                  then: target
+  - target:
+      do:
+        - finish:
+            output:
+              as:
+                input: ${ $input.request }
+                source: ${ $data.source }
+                target: ${ $data.target }
+                environment: ${ $env.DEPLOYMENT }
+            set:
+              target: complete
+`)
+	handler := zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{
+		Envvars: map[string]any{"DEPLOYMENT": dynamicRecordedEnvironment},
+	})
+
+	t.Run("redirect", func(t *testing.T) {
+		harness := newDynamicWorkflowTestHarness(t, handler)
+		harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+		harness.execute("source", zigflow.DynamicWorkflowInput{
+			Version:    zigflow.DynamicWorkflowInputVersion,
+			Definition: definition,
+			Input:      map[string]any{dynamicRequestKey: "redirect-input"},
+		})
+
+		requireWorkflowResult(t, harness.env, map[string]any{
+			"environment": dynamicRecordedEnvironment,
+			"input":       "redirect-input",
+			"source":      "complete",
+			"target":      "complete",
+		})
+		requireScheduledChildWorkflowNames(t, harness, "target")
+	})
+
+	t.Run("direct second root dispatch", func(t *testing.T) {
+		harness := newDynamicWorkflowTestHarness(t, handler)
+		harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+		harness.execute("target", zigflow.DynamicWorkflowInput{
+			Version:    zigflow.DynamicWorkflowInputVersion,
+			Definition: definition,
+			Input:      map[string]any{dynamicRequestKey: "direct-input"},
+		})
+
+		requireWorkflowResult(t, harness.env, map[string]any{
+			"environment": dynamicRecordedEnvironment,
+			"input":       "direct-input",
+			"source":      nil,
+			"target":      "complete",
+		})
+		requireScheduledChildWorkflowNames(t, harness)
+	})
+}
+
+func TestDynamicWorkflowContinueAsNewPreservesInvocationSnapshotAndState(t *testing.T) {
+	definition := []byte(`document:
+  dsl: 1.0.0
+  taskQueue: dynamic-tests
+  workflowType: dynamic-continue-as-new
+  version: 0.0.1
+do:
+  - first:
+      export:
+        as:
+          exported: ${ $input.request }
+      set:
+        dataValue: preserved-data
+        outputValue: preserved-output
+  - pause:
+      output:
+        as: ${ $output }
+      wait:
+        milliseconds: 1
+  - finish:
+      output:
+        as:
+          context: ${ $context.exported }
+          data: ${ $data.dataValue }
+          environment: ${ $env.DEPLOYMENT }
+          input: ${ $input.request }
+          previousOutput: ${ $output.outputValue }
+      set:
+        finished: true
+`)
+	input := map[string]any{dynamicRequestKey: dynamicOriginalInput}
+	firstHandler := zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{
+		Envvars: map[string]any{"DEPLOYMENT": dynamicRecordedEnv},
+	})
+	firstRun := newDynamicWorkflowTestHarness(t, firstHandler)
+	firstRun.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+	firstRun.env.SetOnTimerScheduledListener(func(string, time.Duration) {
+		firstRun.env.SetContinueAsNewSuggested(true)
+	})
+	firstRun.execute("dynamic-continue-as-new", zigflow.DynamicWorkflowInput{
+		Version:    zigflow.DynamicWorkflowInputVersion,
+		Definition: definition,
+		Input:      input,
+	})
+
+	var continueErr *workflow.ContinueAsNewError
+	require.Error(t, firstRun.env.GetWorkflowError())
+	require.True(t, errors.As(firstRun.env.GetWorkflowError(), &continueErr))
+	require.Equal(t, "dynamic-continue-as-new", continueErr.WorkflowType.Name)
+	require.Len(t, continueErr.Input.Payloads, 1, "dynamic CAN must use the internal one-argument envelope")
+
+	var invocation tasks.InternalWorkflowInvocation
+	require.NoError(t, converter.GetDefaultDataConverter().FromPayloads(continueErr.Input, &invocation))
+	require.Equal(t, tasks.InternalWorkflowInvocationVersion, invocation.Version)
+	require.Equal(t, definition, invocation.Definition)
+	require.Equal(t, map[string]any{"DEPLOYMENT": dynamicRecordedEnv}, invocation.RecordedEnv)
+	require.Equal(t, input, invocation.OriginalInput)
+	require.NotNil(t, invocation.State)
+	require.Equal(t, input, invocation.State.Input)
+	require.Equal(t, map[string]any{"DEPLOYMENT": dynamicRecordedEnv}, invocation.State.Env)
+	require.Equal(t, map[string]any{"exported": dynamicOriginalInput}, invocation.State.Context)
+	require.Equal(t, "preserved-data", invocation.State.Data["dataValue"])
+	require.Equal(t, map[string]any{
+		"dataValue":   "preserved-data",
+		"outputValue": "preserved-output",
+	}, invocation.State.Output)
+	require.Equal(t, "finish-2", requireContinueAsNewStartID(t, invocation.State.CANStartFrom))
+
+	continuedHandler := zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{
+		Envvars: map[string]any{"DEPLOYMENT": "changed-worker-env"},
+	})
+	continuedRun := newDynamicWorkflowTestHarness(t, continuedHandler)
+	continuedRun.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+	continuedRun.execute("dynamic-continue-as-new", invocation)
+
+	requireWorkflowResult(t, continuedRun.env, map[string]any{
+		"context":        dynamicOriginalInput,
+		"data":           "preserved-data",
+		"environment":    dynamicRecordedEnv,
+		"input":          dynamicOriginalInput,
+		"previousOutput": "preserved-output",
+	})
+}
+
+func requireContinueAsNewStartID(t testing.TB, startFrom *string) string {
+	t.Helper()
+	require.NotNil(t, startFrom)
+	return *startFrom
 }
 
 func TestDynamicWorkflowExecutesOtherFlatTaskTypes(t *testing.T) {
@@ -188,6 +355,16 @@ func TestDynamicWorkflowRejectsInputAndDispatchMismatches(t *testing.T) {
 			},
 			errorType: dynamicInputApplicationErr,
 			message:   "unsupported dynamic workflow input version",
+		},
+		{
+			name:         "unsupported internal envelope version",
+			workflowType: dynamicSetSwitchType,
+			taskQueue:    dynamicTestTaskQueue,
+			input: tasks.InternalWorkflowInvocation{
+				Version: tasks.InternalWorkflowInvocationVersion + 1,
+			},
+			errorType: dynamicInputApplicationErr,
+			message:   "unsupported internal workflow invocation version",
 		},
 		{
 			name:         "empty definition",

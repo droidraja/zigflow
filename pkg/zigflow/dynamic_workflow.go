@@ -23,6 +23,7 @@ import (
 
 	swUtils "github.com/serverlessworkflow/sdk-go/v3/impl/utils"
 	"github.com/zigflow/zigflow/pkg/cloudevents"
+	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/tasks"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
@@ -67,21 +68,11 @@ func NewDynamicWorkflowHandler(
 	capturedTaskOpts.ActivityDispatchPolicy = tasks.ActivityDispatchDynamic
 
 	return func(ctx workflow.Context, args converter.EncodedValues) (any, error) {
-		var input DynamicWorkflowInput
-		if err := args.Get(&input); err != nil {
+		input, err := decodeDynamicWorkflowInvocation(args)
+		if err != nil {
 			return nil, newDynamicWorkflowError(
 				dynamicWorkflowInputErrorType,
-				fmt.Errorf("decode dynamic workflow input: %w", err),
-			)
-		}
-		if input.Version != DynamicWorkflowInputVersion {
-			return nil, newDynamicWorkflowError(
-				dynamicWorkflowInputErrorType,
-				fmt.Errorf(
-					"unsupported dynamic workflow input version %d, supported version is %d",
-					input.Version,
-					DynamicWorkflowInputVersion,
-				),
+				err,
 			)
 		}
 		if len(bytes.TrimSpace(input.Definition)) == 0 {
@@ -111,23 +102,27 @@ func NewDynamicWorkflowHandler(
 			)
 		}
 
-		var recordedEnv map[string]any
-		if err := workflow.SideEffect(ctx, func(workflow.Context) any {
-			return swUtils.DeepClone(capturedEnv)
-		}).Get(&recordedEnv); err != nil {
-			return nil, newDynamicWorkflowError(
-				dynamicWorkflowPreparationErrorType,
-				fmt.Errorf("record dynamic workflow environment snapshot: %w", err),
-			)
+		recordedEnv := input.RecordedEnv
+		if !input.Internal {
+			if err := workflow.SideEffect(ctx, func(workflow.Context) any {
+				return swUtils.DeepClone(capturedEnv)
+			}).Get(&recordedEnv); err != nil {
+				return nil, newDynamicWorkflowError(
+					dynamicWorkflowPreparationErrorType,
+					fmt.Errorf("record dynamic workflow environment snapshot: %w", err),
+				)
+			}
 		}
 		if recordedEnv == nil {
 			recordedEnv = map[string]any{}
 		}
 
+		taskOpts := cloneTaskOpts(capturedTaskOpts)
+		taskOpts.DynamicExecution = tasks.NewDynamicExecutionOptions(input.Definition)
 		registry, err := BuildPreparedWorkflow(doc, WorkflowBuildOptions{
 			Envvars:  recordedEnv,
 			Emitter:  cloudevents.NewNoOpEvents(),
-			TaskOpts: capturedTaskOpts,
+			TaskOpts: taskOpts,
 		})
 		if err != nil {
 			return nil, newDynamicWorkflowError(
@@ -149,8 +144,67 @@ func NewDynamicWorkflowHandler(
 			)
 		}
 
-		return fn(ctx, input.Input, nil)
+		return fn(ctx, input.Input, input.State)
 	}
+}
+
+type dynamicWorkflowInvocation struct {
+	Definition  []byte
+	Input       any
+	RecordedEnv map[string]any
+	State       *utils.State
+	Internal    bool
+}
+
+func decodeDynamicWorkflowInvocation(args converter.EncodedValues) (dynamicWorkflowInvocation, error) {
+	var header struct {
+		InternalVersion int `json:"internalVersion"`
+	}
+	if err := args.Get(&header); err != nil {
+		return dynamicWorkflowInvocation{}, fmt.Errorf("decode dynamic workflow input: %w", err)
+	}
+
+	if header.InternalVersion != 0 {
+		var input tasks.InternalWorkflowInvocation
+		if err := args.Get(&input); err != nil {
+			return dynamicWorkflowInvocation{}, fmt.Errorf("decode internal workflow invocation: %w", err)
+		}
+		if input.Version != tasks.InternalWorkflowInvocationVersion {
+			return dynamicWorkflowInvocation{}, fmt.Errorf(
+				"unsupported internal workflow invocation version %d, supported version is %d",
+				input.Version,
+				tasks.InternalWorkflowInvocationVersion,
+			)
+		}
+		if input.State == nil {
+			return dynamicWorkflowInvocation{}, fmt.Errorf("internal workflow invocation state must not be nil")
+		}
+
+		return dynamicWorkflowInvocation{
+			Definition:  bytes.Clone(input.Definition),
+			Input:       input.OriginalInput,
+			RecordedEnv: swUtils.DeepClone(input.RecordedEnv),
+			State:       input.State,
+			Internal:    true,
+		}, nil
+	}
+
+	var input DynamicWorkflowInput
+	if err := args.Get(&input); err != nil {
+		return dynamicWorkflowInvocation{}, fmt.Errorf("decode dynamic workflow input: %w", err)
+	}
+	if input.Version != DynamicWorkflowInputVersion {
+		return dynamicWorkflowInvocation{}, fmt.Errorf(
+			"unsupported dynamic workflow input version %d, supported version is %d",
+			input.Version,
+			DynamicWorkflowInputVersion,
+		)
+	}
+
+	return dynamicWorkflowInvocation{
+		Definition: bytes.Clone(input.Definition),
+		Input:      input.Input,
+	}, nil
 }
 
 func newDynamicWorkflowError(errorType string, err error) error {

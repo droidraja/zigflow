@@ -329,6 +329,11 @@ func TestDoTaskBuilderContinueAsNew(t *testing.T) {
 	err := env.GetWorkflowError()
 	assert.Error(t, err)
 	assert.True(t, workflow.IsContinueAsNewError(err))
+	var continueErr *workflow.ContinueAsNewError
+	if assert.ErrorAs(t, err, &continueErr) {
+		assert.Len(t, continueErr.Input.Payloads, 2,
+			"static CAN must retain the historical input and state argument shape")
+	}
 	if assert.NotNil(t, state.CANStartFrom) {
 		assert.Equal(t, "task-one-0", *state.CANStartFrom)
 	}
