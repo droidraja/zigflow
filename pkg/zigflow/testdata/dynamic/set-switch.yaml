@@ -1,0 +1,23 @@
+document:
+  dsl: 1.0.0
+  taskQueue: dynamic-tests
+  workflowType: dynamic-set-switch
+  version: 0.0.1
+do:
+  - select:
+      set:
+        selected: ${ $input.selected }
+  - choose:
+      switch:
+        - selected:
+            when: ${ $data.selected == "match" }
+            then: continue
+        - default:
+            then: end
+  - finish:
+      output:
+        as:
+          selected: ${ $data.selected }
+          complete: true
+      set:
+        complete: true

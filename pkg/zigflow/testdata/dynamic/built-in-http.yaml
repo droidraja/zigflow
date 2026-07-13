@@ -1,0 +1,15 @@
+document:
+  dsl: 1.0.0
+  taskQueue: dynamic-tests
+  workflowType: dynamic-built-in-http
+  version: 0.0.1
+  metadata:
+    activityOptions:
+      startToCloseTimeout:
+        seconds: 5
+do:
+  - request:
+      call: http
+      with:
+        method: get
+        endpoint: https://example.com/dynamic-probe

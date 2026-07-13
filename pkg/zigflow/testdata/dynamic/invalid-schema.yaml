@@ -1,0 +1,8 @@
+document:
+  dsl: 1.0.0
+  workflowType: dynamic-invalid-schema
+  version: 0.0.1
+do:
+  - step:
+      set:
+        value: invalid

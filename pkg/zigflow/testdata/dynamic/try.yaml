@@ -1,0 +1,23 @@
+document:
+  dsl: 1.0.0
+  taskQueue: dynamic-tests
+  workflowType: dynamic-try
+  version: 0.0.1
+do:
+  - guarded:
+      try:
+        - fail:
+            raise:
+              error:
+                type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                status: 400
+      catch:
+        as: failure
+        do:
+          - recover:
+              output:
+                as:
+                  caught: true
+                  errorType: ${ $data.failure.type }
+              set:
+                caught: true

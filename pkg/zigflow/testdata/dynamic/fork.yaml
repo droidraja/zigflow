@@ -1,0 +1,18 @@
+document:
+  dsl: 1.0.0
+  taskQueue: dynamic-tests
+  workflowType: dynamic-fork
+  version: 0.0.1
+do:
+  - branches:
+      output:
+        as: ${ . }
+      fork:
+        compete: false
+        branches:
+          - first:
+              set:
+                branch: first
+          - second:
+              set:
+                branch: second

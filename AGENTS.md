@@ -162,6 +162,41 @@ Go-specific guidance:
 
 ---
 
+## Dynamic workflow fork buildout
+
+`DYNAMIC_WORKFLOW_EXECUTION_PLAN.md` is the authoritative implementation plan
+for the dynamic workflow fork buildout. Read it in full before taking a slice.
+
+- Run repository setup before Slice 0.
+- Implement slices in order. Give each slice to one subagent,
+  integrate and verify that slice, then start the next subagent from the updated
+  worktree.
+- Keep changes within the slice's owner surface. Do not combine later slices
+  for convenience.
+- Preserve every cross-slice invariant in the plan. In particular, retain
+  static replay compatibility, validate before execution, avoid mutable global
+  catalogues and workflow-runtime registration, and carry recorded definition
+  and environment snapshots across every internal boundary.
+- Stop and report a blocker if a static Temporal history changes commands
+  without an explicit, reviewed version gate.
+
+For a fresh clone, use the Go version declared in `go.mod`, install the
+dependencies under `scripts`, install pre-commit, and install both configured
+Git hook types:
+
+```sh
+npm ci --prefix scripts
+pip install pre-commit
+pre-commit install --hook-type pre-commit --hook-type commit-msg
+```
+
+Before the end-to-end slices, also ensure that Task, Buf, Protobuf, and the Go
+Protobuf generators are installed. Follow the per-slice verification gates in
+the plan. This includes focused tests, `go test ./...`, and `pre-commit run`
+after every slice, plus `task e2e` for Slices 9 through 11.
+
+---
+
 ## Linting and testing
 
 Run these after making changes:
