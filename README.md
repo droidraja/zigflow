@@ -12,9 +12,9 @@
 
 Zigflow lets you define and run [Temporal](https://temporal.io) workflows using
 YAML, built on the [CNCF Serverless Workflow](https://serverlessworkflow.io)
-specification. You write a workflow definition; Zigflow compiles it into a
-fully-featured Temporal workflow with retries, state management and
-deterministic execution. No Go, Java or TypeScript workflow code required.
+specification. You write a workflow definition; Zigflow validates it, builds a
+deterministic task closure tree and interprets that tree during Temporal
+workflow execution. No Go, Java or TypeScript workflow code is required.
 
 > If this looks useful, a ⭐ helps others find the project.
 
@@ -88,6 +88,22 @@ Run your first workflow in a few minutes and see the result.
 - [Documentation](https://zigflow.dev/docs)
 - [Examples](https://zigflow.dev/docs/examples)
 - [CLI reference](https://zigflow.dev/docs/cli/commands/zigflow_run)
+
+### Dynamic inline workflows
+
+Dynamic workflow execution is an opt-in deployment mode. Start a worker for a
+task queue without mounting a workflow file:
+
+```sh
+zigflow run --dynamic-task-queue dynamic-workflows
+```
+
+A Temporal client can then start an arbitrary workflow type on that queue and
+pass a versioned envelope containing the complete YAML or JSON definition and
+the workflow input. Static file-backed registrations remain the default and
+can coexist with a dynamic fallback. See
+[Dynamic workflows](https://zigflow.dev/docs/concepts/dynamic-workflows) for
+the input contract, starter example and deployment constraints.
 
 ⭐ Star the repo if this was useful
 
@@ -177,9 +193,12 @@ Temporal, not a replacement for its full SDK capabilities.
 
 1. You define a workflow using YAML based on the Serverless Workflow spec.
 2. Zigflow validates the definition before execution.
-3. Zigflow compiles the definition into a Temporal workflow implementation.
+3. Zigflow builds a deterministic tree of Go closures from the validated task
+   structure.
 4. A worker is started for the configured namespace and task queue.
-5. Activities are executed by your existing Temporal workers.
+5. Zigflow interprets the closure tree at workflow runtime and issues Temporal
+   commands.
+6. Activities are executed by Zigflow or your existing Temporal workers.
 
 Zigflow handles orchestration while your services execute the work.
 
@@ -307,7 +326,7 @@ schedules and more) are in [examples/](./examples).
 
 ## Features
 
-- **Temporal DSL**: declarative YAML definitions that compile to Temporal workflows
+- **Temporal DSL**: declarative YAML definitions interpreted as Temporal workflows
 - **CNCF standard**: aligned with Serverless Workflow v1.0+
 - **Validation first**: definitions are validated before execution; invalid or
   unsupported constructs are rejected with actionable errors

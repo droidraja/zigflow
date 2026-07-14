@@ -5,8 +5,11 @@ description: "Introduction to Zigflow, a worker that runs YAML-defined workflows
 ---
 
 Zigflow runs workflows defined in YAML on [Temporal](https://temporal.io).
-You write a workflow definition file; Zigflow compiles it, validates it and
-registers it as a Temporal worker with
+You write a workflow definition; Zigflow parses and validates it, builds a task
+closure tree and interprets that tree during workflow execution. File-backed
+definitions are registered when the worker starts. Inline definitions can be
+supplied to an opt-in [dynamic worker](/docs/concepts/dynamic-workflows). Both
+paths retain Temporal's
 [durable execution](/docs/concepts/durable-execution-in-yaml) guarantees.
 
 **Zigflow is for teams that want to:**

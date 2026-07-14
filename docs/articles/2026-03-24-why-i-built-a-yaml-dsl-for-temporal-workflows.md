@@ -45,7 +45,8 @@ Zigflow is a declarative DSL built on top of Temporal.
 Instead of writing workflows in Go, Java or TypeScript, you define them in YAML
 using a structure inspired by the [CNCF Serverless Workflow specification](https://github.com/serverlessworkflow/specification/blob/main/dsl-reference.md).
 
-Zigflow then compiles that definition into a Temporal workflow implementation.
+Zigflow then validates that definition, builds a deterministic task closure
+tree and interprets the tree during Temporal workflow execution.
 
 ## The hard part: determinism
 
@@ -115,7 +116,7 @@ Zigflow provides:
 
 - declarative workflow definitions
 - validation before execution
-- compilation into deterministic Temporal workflows
+- deterministic interpretation on Temporal
 - Kubernetes-native deployment
 - support for multi-language activity workers
 

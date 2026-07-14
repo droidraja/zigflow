@@ -7,7 +7,7 @@ sidebar_position: 3
 ## What you will learn
 
 - What happens step by step when you run `zigflow run`
-- How YAML is validated and compiled
+- How YAML is validated and built into an execution tree
 - How Temporal workers are involved
 - What the worker does during a workflow execution
 
@@ -55,10 +55,13 @@ zigflow validate workflow.yaml
 Zigflow connects to the Temporal server at the address given by
 `--temporal-address` (default `localhost:7233`).
 
-### 4. Register the workflow
+### 4. Build and register the workflow
 
-Zigflow registers the compiled workflow and its activities with Temporal under
-the task queue specified by `document.taskQueue`.
+Zigflow builds the validated task structure into a deterministic tree of Go
+closures. It registers the resulting workflow types and activities on the task
+queue specified by `document.taskQueue`. The closure tree is an in-memory
+execution structure, not generated source code or a deployable workflow
+artefact.
 
 ### 5. Start polling
 
@@ -73,8 +76,10 @@ The worker continues polling until it is interrupted (for example, with
 When a client starts a workflow execution, Temporal places a task on the
 queue. The Zigflow worker picks it up and begins execution.
 
-Execution is driven by Temporal's event history. Tasks in your `do` list run
-in sequence. Each task records its result in the history.
+Execution is driven by Temporal's event history. Zigflow walks the closure
+tree and interprets each task against the current workflow state. Tasks in your
+`do` list run in sequence. Each Temporal command and result is recorded in the
+history.
 
 If the worker crashes and restarts, Temporal replays the history. Zigflow
 re-executes each task from the top, but tasks whose results are already in
@@ -98,6 +103,17 @@ flowchart TD
     H -- yes --> I[Execute task]
     I --> G
 ```
+
+## Dynamic workflow path
+
+`zigflow run --dynamic-task-queue <queue>` installs an opt-in dynamic workflow
+fallback. The workflow definition is supplied in the Temporal start input
+instead of being read from a worker file. On each root execution, Zigflow
+validates the recorded definition, builds an execution-local closure tree and
+interprets it through the same task implementations as the static path.
+
+See [Dynamic workflows](/docs/concepts/dynamic-workflows) for the versioned
+input contract, snapshot timing and deployment constraints.
 
 ---
 
@@ -150,9 +166,11 @@ Temporal will continue to hold the workflow execution in its history. When
 you restart the worker, Temporal replays the history and resumes from where
 it left off.
 
-**Editing the workflow YAML while the worker is running.**
-Zigflow loads the YAML once at startup. Changes to the file after the worker
-starts have no effect until the worker is restarted.
+**Editing a static workflow YAML while the worker is running.**
+Zigflow loads a static YAML file once at startup. Changes to the file after the
+worker starts have no effect until the worker is restarted. A dynamic
+definition is recorded in its Temporal start input and does not change during
+that execution.
 
 ---
 

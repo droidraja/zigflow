@@ -1,6 +1,6 @@
 ---
-title: "From YAML to Temporal: compiling deterministic workflows"
-description: How Zigflow validates and compiles YAML workflows into deterministic Temporal executions.
+title: "From YAML to Temporal: interpreting deterministic workflows"
+description: How Zigflow validates, builds and interprets YAML workflows as deterministic Temporal executions.
 slug: how-zigflow-maps-yaml-to-temporal
 authors: mrsimonemms
 ---
@@ -14,14 +14,12 @@ So how does that mapping actually work?
 
 ## The core idea
 
-Zigflow does not interpret YAML at runtime.
-
-Instead, it follows a pipeline:
+Zigflow is a validated tree-walking interpreter. It follows this pipeline:
 
 1. Parse the workflow definition
 2. Validate it
-3. Compile it
-4. Execute it as a Temporal workflow
+3. Build a task closure tree
+4. Interpret the tree during Temporal workflow execution
 
 This separation is key.
 
@@ -42,9 +40,10 @@ warnings or validation errors before the workflow is ever run.
 
 This shifts feedback from runtime failures to definition-time validation.
 
-## Compilation
+## Building the closure tree
 
-Once validated, the workflow is compiled into a Temporal workflow implementation.
+Once validated, the workflow task structure is built into a deterministic tree
+of Go closures.
 
 At this stage:
 
@@ -52,17 +51,17 @@ At this stage:
 - activity calls are defined explicitly
 - state transitions are derived from the DSL
 
-The result is not dynamic interpretation.
-
-It is a fixed execution model.
+The result is an in-memory execution structure. Zigflow does not generate Go
+source or produce a deployable workflow artefact.
 
 ## Execution
 
 At runtime:
 
 - Zigflow starts a Temporal worker
-- the compiled workflow is registered
-- activities are executed by external workers
+- file-backed workflow types are registered when the worker starts
+- Zigflow walks the closure tree against live workflow state
+- activities are executed by Zigflow or external activity workers
 
 Zigflow handles orchestration.
 
@@ -104,7 +103,7 @@ By separating:
 
 - definition
 - validation
-- compilation
+- closure-tree construction
 - execution
 
 Zigflow creates a system that is:
@@ -117,9 +116,7 @@ It also enables higher-level abstractions such as visual workflow builders.
 
 ## Final thought
 
-Zigflow is not a runtime.
-
-It is a compilation and orchestration layer.
+Zigflow is a declarative orchestration layer and tree-walking interpreter.
 
 Temporal remains the execution engine.
 

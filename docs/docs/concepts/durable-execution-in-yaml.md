@@ -1,7 +1,7 @@
 ---
 title: "Durable execution in YAML"
 sidebar_position: 10
-description: "How Zigflow expresses durable execution in YAML by compiling declarative workflow definitions onto Temporal."
+description: "How Zigflow expresses durable execution in YAML by validating and interpreting declarative workflow definitions on Temporal."
 ---
 
 Durable execution is the property that a workflow continues to run correctly
@@ -35,13 +35,14 @@ re-execution on replay.
 
 ## How Zigflow expresses it in YAML
 
-A Zigflow workflow is a YAML file that describes the steps to run. Zigflow
-loads the file, validates it and compiles it into a Temporal workflow at
-worker startup. From Temporal's perspective, the result is an ordinary
-workflow with the same durability guarantees as any SDK-defined workflow.
+A Zigflow workflow is YAML or JSON data that describes the steps to run. Zigflow
+loads the definition, validates it and builds a deterministic task closure
+tree. At workflow runtime, Zigflow walks that tree and interprets each task
+against workflow state. Temporal records the commands and results with the
+same durability guarantees as an SDK-defined workflow.
 
 Determinism is structural in Zigflow rather than a discipline applied by
-the author. The compiler enforces this in three ways:
+the author. Zigflow enforces this in three ways:
 
 1. **Workflow logic is data.** Control flow, branching and iteration are
    expressed as task structures such as `do`, `for`, `switch`, `try` and
@@ -91,7 +92,7 @@ Expressing durable execution in YAML has several practical implications:
 
 - **No SDK boilerplate.** The workflow definition is the entire workflow.
   There is no project to scaffold, no language toolchain to manage and no
-  compiled artefact to ship beyond the YAML file.
+  generated workflow artefact to ship beyond the YAML file.
 - **Validation as a first-class step.** Errors that an SDK would surface
   only when a workflow runs are reported by `zigflow validate` before
   deployment.
@@ -107,7 +108,8 @@ Expressing durable execution in YAML has several practical implications:
 
 Durable execution is a property of the workflow runtime, not of the
 language used to describe the workflow. Temporal supplies the runtime.
-Zigflow supplies a declarative YAML surface that compiles to that runtime,
-with determinism enforced structurally and validation performed before
-execution. The result is a workflow that is durable, observable and
-replayable, defined entirely in configuration.
+Zigflow supplies a declarative YAML surface that it validates, builds into a
+closure tree and interprets on that runtime. Determinism is enforced
+structurally and validation is performed before user tasks execute. The result
+is a workflow that is durable, observable and replayable, defined entirely in
+configuration.

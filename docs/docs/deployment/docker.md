@@ -147,6 +147,7 @@ flags. Key variables:
 | `WORKFLOW_FILE` | `-f` | (none) |
 | `WORKFLOW_DIRECTORY` | `-d` / `--dir` | (none) |
 | `WORKFLOW_DIRECTORY_GLOB` | `--glob` | `*.{yaml,yml,json}` |
+| `DYNAMIC_TASK_QUEUE` | `--dynamic-task-queue` | (none) |
 | `DISABLE_TELEMETRY` | `--disable-telemetry` | (false) |
 
 :::info
@@ -161,6 +162,20 @@ clear it.
 Zigflow supports loading workflow definitions from explicit file paths, a
 directory, or both together. All discovered files are merged and deduplicated
 before any worker starts.
+
+**Dynamic mode** starts a worker without mounting a definition file. The
+published image sets a default `WORKFLOW_FILE`, so clear it explicitly:
+
+```sh
+docker run --rm \
+  -e WORKFLOW_FILE= \
+  ghcr.io/zigflow/zigflow run \
+  --dynamic-task-queue dynamic-workflows
+```
+
+The definition is supplied in each Temporal start input. See
+[Dynamic workflows](/docs/concepts/dynamic-workflows) for the versioned input
+contract and current constraints.
 
 **File mode** - load one or more explicit files using `WORKFLOW_FILE` (or `-f`):
 

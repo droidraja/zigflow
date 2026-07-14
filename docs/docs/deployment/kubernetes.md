@@ -67,7 +67,8 @@ helm install zigflow oci://ghcr.io/zigflow/charts/zigflow@${ZIGFLOW_VERSION} \
 
 ## Workflow delivery options
 
-The chart supports three ways to provide the workflow file:
+The chart supports three ways to provide a static workflow file and one
+file-free dynamic mode:
 
 ### Option 1 - Inline YAML (default)
 
@@ -129,6 +130,25 @@ workflow:
 
 The worker reads the workflow from the path already present inside the
 image. No Secret or ConfigMap is created.
+
+### Option 4 - Dynamic workflow worker
+
+Disable workflow injection and configure the dynamic task queue through the
+generic `config` map:
+
+```yaml title="values.yaml"
+config:
+  temporal-address: temporal:7233
+  dynamic-task-queue: dynamic-workflows
+
+workflow:
+  enabled: false
+```
+
+No workflow Secret or volume is created. Clients supply the complete
+definition in each Temporal start input. See
+[Dynamic workflows](/docs/concepts/dynamic-workflows) for the versioned input
+contract. Dynamic schedules are not supported.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Overview
 sidebar_position: 1
-description: "Conceptual overview of Zigflow as a Temporal worker: how it compiles and runs YAML workflows, what it does not provide and common usage mistakes."
+description: "Conceptual overview of Zigflow as a Temporal worker: how it validates and interprets YAML workflows, what it does not provide and common usage mistakes."
 ---
 
 ## What you will learn
@@ -15,11 +15,12 @@ description: "Conceptual overview of Zigflow as a Temporal worker: how it compil
 
 ## What is Zigflow?
 
-Zigflow is a **workflow worker** that reads a YAML file and runs it on
-[Temporal](https://temporal.io).
+Zigflow is a **workflow worker** that reads a YAML or JSON definition and runs
+it on [Temporal](https://temporal.io).
 
-You describe your workflow in YAML. Zigflow validates that description, compiles
-it into a Temporal workflow and starts a worker that processes executions.
+You describe your workflow in YAML. Zigflow validates that description, builds
+a deterministic task closure tree and starts a worker that interprets the tree
+during Temporal workflow executions.
 
 ```yaml title="workflow.yaml"
 document:
@@ -71,8 +72,9 @@ flowchart LR
 
 ## The mental model
 
-1. A workflow definition is a YAML file, not application code.
-2. Zigflow compiles that YAML into a Temporal workflow at startup.
+1. A workflow definition is YAML or JSON data, not application code.
+2. Zigflow builds the YAML task structure into a closure tree and interprets it
+   at workflow runtime.
 3. The worker polls Temporal for executions. It does not listen on a port.
 4. Validation runs before the worker starts. Invalid workflows fail fast.
 5. Execution is deterministic. All side effects belong in activities, not
@@ -82,7 +84,7 @@ flowchart LR
 
 ## What Zigflow does not do
 
-Zigflow is a worker and a compiler. It does not:
+Zigflow is a worker and a tree-walking interpreter. It does not:
 
 - Provide a Temporal server (you must supply one)
 - Act as an HTTP API for triggering workflows (use a Temporal SDK or the
@@ -91,6 +93,11 @@ Zigflow is a worker and a compiler. It does not:
 - Support all constructs from the CNCF Serverless Workflow specification
   (unsupported features are rejected with a clear error)
 - Allow non-deterministic code inside workflow definitions
+
+The default path loads definitions from files when the worker starts. The
+opt-in [dynamic workflow path](/docs/concepts/dynamic-workflows) accepts a
+complete definition in each Temporal start input while preserving the same
+validation and deterministic interpretation model.
 
 ---
 

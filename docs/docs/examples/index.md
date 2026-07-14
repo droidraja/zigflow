@@ -20,6 +20,7 @@ A curated set of examples that demonstrate common Zigflow patterns.
 | [Error Handling](/docs/examples/error-handling) | Catch errors and recover | `try`, `catch`, `raise` |
 | [Parallel Tasks](/docs/examples/parallel-tasks) | Run branches concurrently | `fork`, `compete` |
 | [Signal-Driven Workflow](/docs/examples/signal-driven) | Pause for an external signal | `listen`, `signal` |
+| [Dynamic Workflow](/docs/examples/dynamic-workflow) | Supply the definition in the Temporal start input | `--dynamic-task-queue`, replay |
 
 ---
 
@@ -37,6 +38,7 @@ in the repository contains additional patterns:
 - `schedule`: scheduled workflow triggers
 - `money-transfer`: compensating transaction logic
 - `external-calls`: HTTP and gRPC in a single fork
+- `dynamic-workflow`: inline definition snapshots, child boundaries and replay
 
 ---
 

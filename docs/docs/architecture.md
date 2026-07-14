@@ -1,8 +1,8 @@
 # Zigflow Architecture
 
-Zigflow is an opinionated declarative layer on top of Temporal. It translates
-Serverless Workflow–style YAML definitions into executable Temporal workflows,
-while enforcing determinism, validation and structural constraints.
+Zigflow is an opinionated declarative layer on top of Temporal. It interprets
+Serverless Workflow-style YAML definitions as Temporal workflows while
+enforcing determinism, validation and structural constraints.
 
 This document describes how Zigflow works internally and the architectural
 principles that guide its design.
@@ -16,12 +16,13 @@ At a conceptual level, Zigflow follows this execution pipeline:
 ```mermaid
 flowchart TD
     A[YAML Definition] --> B[Schema Validation]
-    B --> C[Specification Validation]
-    C --> D[Zigflow Constraints & Normalisation]
-    D --> E[Compilation to Internal Representation]
-    E --> F[Temporal Workflow Implementation]
-    F --> G[Worker Startup]
-    G --> H[Activity Execution via Temporal]
+    B --> C[Normalisation and Model Decoding]
+    C --> D[PostLoad and Structural Validation]
+    D --> E[Expression and DSL Version Validation]
+    E --> F[Task Builder Tree]
+    F --> G[Temporal Workflow Closure Tree]
+    G --> H[Tree-walking Interpretation]
+    H --> I[Temporal Commands]
 ```
 
 Zigflow handles orchestration. Your services handle the work.
@@ -39,8 +40,8 @@ or warnings.
 A Zigflow workflow is defined in YAML and includes:
 
 - `dsl` version
-- `namespace` (mapped to a Temporal task queue)
-- `name` (mapped to a Temporal workflow type)
+- `taskQueue` (mapped to a Temporal task queue)
+- `workflowType` (mapped to a Temporal workflow type)
 - `version` (semantic versioning)
 - declarative `do` blocks and related constructs
 
@@ -69,17 +70,26 @@ errors over implicit behaviour.
 
 ---
 
-## Compilation model
+## Build and interpretation model
 
-Zigflow compiles validated workflow definitions into a Temporal workflow
-implementation.
+Zigflow builds each validated task structure into a tree of Go closures. The
+closures are an in-memory execution structure, not generated source code or a
+deployable workflow artefact. Zigflow walks that tree during Temporal workflow
+execution and evaluates branches and expressions against live workflow state.
 
 Key principles:
 
-- The generated workflow must be deterministic.
+- The closure tree and its traversal must be deterministic.
 - Workflow state transitions are driven by the DSL structure.
 - Side effects are modelled as Temporal activities.
 - Control flow constructs map to Temporal-safe patterns.
+
+For the default static path, Zigflow parses, validates and builds the tree when
+the worker starts, then registers the named workflow types. For the opt-in
+[dynamic path](/docs/concepts/dynamic-workflows), the definition is part of the
+Temporal start input. The dynamic handler validates and rebuilds an
+execution-local closure tree from those recorded bytes before the first user
+task executes.
 
 ---
 
@@ -121,7 +131,7 @@ constructs the registered Zigflow type for it. Unclaimed bodies pass
 through unchanged with identical Temporal history.
 
 Use an extension when the spec's contract has to change to express a
-real Zigflow requirement. Don't use it when `metadata` (the spec's own
+real Zigflow requirement. Do not use it when `metadata` (the spec's own
 extension point) is enough for additive sidecar configuration.
 Extensions are a last resort because they widen Zigflow's surface
 beyond the spec, and any change should be discussed in advance via an

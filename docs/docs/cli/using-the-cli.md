@@ -44,8 +44,8 @@ zigflow run -f workflow.yaml
 This starts a Temporal worker that:
 
 - Connects to Temporal (default: `localhost:7233`)
-- Registers the compiled workflow on the task queue defined by
-  `document.taskQueue`
+- Builds and registers the validated workflow closure tree on the task queue
+  defined by `document.taskQueue`
 - Polls Temporal until interrupted
 
 ### 4. Trigger the workflow
@@ -70,6 +70,24 @@ temporal workflow start \
   --workflow-id my-run-1 \
   --input '{"userId": 42}'
 ```
+
+### Dynamic inline workflow
+
+Start an opt-in dynamic worker without a workflow file:
+
+```sh
+zigflow run --dynamic-task-queue dynamic-workflows
+```
+
+The flag may be repeated. Each configured task queue receives one dynamic
+workflow fallback. A Temporal client starts an arbitrary executable workflow
+type and passes a versioned envelope containing the complete definition bytes
+and user input. Dynamic execution always performs mandatory validation before
+the first user task, even if the worker was started with `--validate=false`.
+
+See [Dynamic workflows](/docs/concepts/dynamic-workflows) for the version `1`
+envelope, an executable starter payload, payload limits, activity names and
+current constraints.
 
 ### 5. View results
 
@@ -133,6 +151,7 @@ Examples:
 | --- | --- |
 | `--temporal-address` | `TEMPORAL_ADDRESS` |
 | `--temporal-api-key` | `TEMPORAL_API_KEY` |
+| `--dynamic-task-queue` | `DYNAMIC_TASK_QUEUE` |
 | `--log-level` | `LOG_LEVEL` |
 | `--disable-telemetry` | `DISABLE_TELEMETRY` |
 
@@ -175,6 +194,20 @@ zigflow run -f workflow.yaml --log-level debug
 Valid values: `trace`, `debug`, `info`, `warn`, `error`. See the
 [CLI reference](/docs/cli/commands/zigflow_run) for the default.
 
+### Static and dynamic registrations
+
+File-backed and dynamic registrations can run in the same Zigflow process:
+
+```sh
+zigflow run \
+  --file workflow.yaml \
+  --dynamic-task-queue dynamic-workflows
+```
+
+They may also share a task queue. Explicitly registered static workflow types
+take precedence over the dynamic fallback and retain their existing direct
+input contract. Dynamic schedules are not supported.
+
 ---
 
 ## Troubleshooting
@@ -193,6 +226,10 @@ the server is running.
 
 **Validation passes but the worker exits immediately.**
 Run with `--log-level debug` to see what failed on startup.
+
+**Dynamic execution reports a task queue mismatch.**
+The inline definition's `document.taskQueue` must exactly match the task queue
+used to start the Temporal execution.
 
 ---
 

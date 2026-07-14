@@ -66,8 +66,8 @@ you run `zigflow run`, the worker registers itself on that task queue.
 A Temporal workflow is a durable, deterministic function. Temporal replays
 the workflow history to resume after failure or restart.
 
-In Zigflow, the workflow is your YAML definition. Zigflow compiles it into a
-Temporal workflow function.
+In Zigflow, the workflow is your YAML definition. Zigflow validates it, builds
+a task closure tree and interprets that tree as a Temporal workflow.
 
 ---
 

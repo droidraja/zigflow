@@ -17,8 +17,8 @@ higher-level abstraction like Zigflow.
 Zigflow is a workflow worker that reads YAML, validates it and runs it on
 Temporal. You define a workflow as data using a structure inspired by the
 [CNCF Serverless Workflow specification](https://serverlessworkflow.io).
-Zigflow compiles that definition into a Temporal workflow at startup and
-registers a worker against a task queue.
+Zigflow builds that definition into a deterministic task closure tree and
+interprets the tree during Temporal workflow execution.
 
 Workflows are defined as data rather than application code. Validation runs
 before execution, and unsupported constructs are rejected with a clear error
@@ -44,7 +44,7 @@ code changes over time.
 | Determinism | Enforced structurally by the DSL and validation | Enforced by SDK conventions and code review |
 | Validation | Runs before execution, fails fast on invalid constructs | Detected at runtime or through tests |
 | Coverage | Subset of CNCF Serverless Workflow plus Zigflow extensions | Full Temporal API surface |
-| Build pipeline | None. The Zigflow binary loads YAML at startup | Compile, package and deploy your worker |
+| Build pipeline | No per-definition source build. Zigflow loads a file at startup or recorded bytes at execution start | Compile, package and deploy your worker |
 | Customisation | Constrained to the DSL | Full programmatic flexibility |
 | Authoring tools | Editable as configuration. Suitable for non-developers with review | Requires the toolchain of the chosen language |
 

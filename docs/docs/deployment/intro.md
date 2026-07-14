@@ -25,6 +25,17 @@ files or a directory. Workflows that share a task queue (defined by
 `document.taskQueue`) run on the same worker. Each distinct task queue gets
 its own worker.
 
+Zigflow can also start an opt-in dynamic worker with no mounted workflow file:
+
+```sh
+zigflow run --dynamic-task-queue dynamic-workflows
+```
+
+The complete definition is then supplied in each Temporal workflow start input.
+Static file-backed and dynamic registrations can coexist in one process. See
+[Dynamic workflows](/docs/concepts/dynamic-workflows) for the public input
+contract and rollout constraints.
+
 There is no separate API server, no database and no persistent storage.
 All workflow state is held by Temporal.
 
@@ -78,7 +89,9 @@ automatic sunset of old worker versions.
 
 - A running Temporal server, either
   [Temporal Cloud](https://temporal.io/cloud) or self-hosted
-- Your workflow definition files
+- Workflow definition files for static registrations, or complete inline
+  definitions in Temporal start inputs for an explicitly configured dynamic
+  task queue
 
 **Not included:**
 
