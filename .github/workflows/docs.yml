@@ -1,18 +1,7 @@
 name: Docs
+# Soft-disabled on this fork: manual-only. Upstream docs publishing depends on
+# infra/vars not configured here. Re-enable auto-triggers if you host the docs.
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*.*.*"
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - closed
   workflow_dispatch:
     inputs:
       deploy:

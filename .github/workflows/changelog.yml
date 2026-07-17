@@ -1,8 +1,7 @@
 name: Update Changelog
+# Soft-disabled on this fork: manual-only (GoReleaser already generates the
+# release notes/changelog). Re-enable the release trigger if you want this too.
 on:
-  release:
-    types:
-      - published
   workflow_dispatch:
 permissions:
   contents: write

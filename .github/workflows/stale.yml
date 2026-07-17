@@ -1,7 +1,6 @@
 name: Close stale issues and PRs
+# Soft-disabled on this fork: manual-only (no scheduled stale sweeps).
 on:
-  schedule:
-    - cron: 0 2 * * *
   workflow_dispatch:
 jobs:
   stale:

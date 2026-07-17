@@ -1,8 +1,7 @@
 name: Update Dependencies
 
+# Soft-disabled on this fork: manual-only (no scheduled dependency updates).
 on:
-  schedule:
-    - cron: "0 0 1 * *"
   workflow_dispatch:
 
 jobs:

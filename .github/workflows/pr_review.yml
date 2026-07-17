@@ -1,13 +1,8 @@
 name: PR Review
+# Soft-disabled on this fork: manual-only. The automated PR reviewer needs
+# secrets not configured here. Re-enable pull_request_target if you set them up.
 on:
-  pull_request_target:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
