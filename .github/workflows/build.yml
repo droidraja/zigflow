@@ -3,8 +3,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*.*.*"
   pull_request:
     branches:
       - main
@@ -13,11 +11,12 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+# CI only. Publishing (Docker/ghcr, Homebrew, Helm chart, MCP deploy) lives
+# upstream and is intentionally removed on this fork; releasing the Go binary
+# is handled by release.yml on tags.
 permissions:
   actions: read
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
   pull-requests: read
   security-events: write
 jobs:
@@ -110,6 +109,24 @@ jobs:
 
       - name: Zigflow schema YAML
         run: go run . schema -o yaml
+
+  # Validate the release config on every push/PR so a broken .goreleaser.yaml is
+  # caught before tagging. Does not publish anything.
+  goreleaser-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Check GoReleaser config
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
 
   e2e:
     runs-on: ubuntu-latest
@@ -256,366 +273,3 @@ jobs:
         run: |
           kubectl get pods -A
           kubectl logs -n zigflow deploy/zigflow --all-containers=true || true
-
-  # Generate metadata shared across all build jobs
-  metadata:
-    runs-on: ubuntu-latest
-    needs:
-      - commitlint
-      - e2e
-      - helm
-      - pre-commit
-      - race
-      - test
-    outputs:
-      is_tag: ${{ steps.branch-name.outputs.is_tag }}
-      tag: ${{ steps.branch-name.outputs.tag }}
-      current_branch: ${{ steps.branch-name.outputs.current_branch }}
-      version: ${{ steps.metadata.outputs.version }}
-      commit_id: ${{ steps.metadata.outputs.commit_id }}
-      git_repo: ${{ steps.metadata.outputs.git_repo }}
-      push: ${{ steps.metadata.outputs.push }}
-      platforms: ${{ steps.metadata.outputs.platforms }}
-      is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
-    steps:
-      - name: Get branch names
-        id: branch-name
-        uses: tj-actions/branch-names@v9
-        with:
-          strip_tag_prefix: v
-
-      - name: Generate metadata
-        id: metadata
-        run: |
-          if [ "${{ steps.branch-name.outputs.is_tag }}" = "true"  ];
-          then
-            echo "version=${{ steps.branch-name.outputs.tag }}" >> "$GITHUB_OUTPUT"
-            echo "platforms=[\"linux/amd64\",\"linux/arm64\"]" >> "$GITHUB_OUTPUT"
-            echo "push=true" >> "$GITHUB_OUTPUT"
-
-            # Detect if tag is a pre-release (contains -rc, -beta, -alpha, etc.)
-            TAG="${{ steps.branch-name.outputs.tag }}"
-            if echo "$TAG" | grep -qE -- '-(rc|beta|alpha|pre)'; then
-              echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "version=development" >> "$GITHUB_OUTPUT"
-            echo "platforms=[\"linux/amd64\"]" >> "$GITHUB_OUTPUT"
-            echo "push=${{ github.ref == 'refs/heads/main' }}" >> "$GITHUB_OUTPUT"
-            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "commit_id=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "git_repo=github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
-
-  # Build Docker images in parallel by architecture and variant
-  docker:
-    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    needs: metadata
-    strategy:
-      matrix:
-        platform: ${{ fromJson(needs.metadata.outputs.platforms) }}
-        variant: [full, core]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to GitHub Container Registry
-        if: needs.metadata.outputs.push == 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive variant values
-        id: vars
-        run: |
-          PLATFORM_TAG=$(echo "${{ matrix.platform }}" | sed 's/\//-/g')
-
-          if [ "${{ matrix.variant }}" = "core" ]; then
-            SUFFIX="-core"
-            TARGET="core"
-          else
-            SUFFIX=""
-            TARGET=""
-          fi
-
-          echo "platform_tag=${PLATFORM_TAG}" >> "$GITHUB_OUTPUT"
-          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
-          echo "image_ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}-${PLATFORM_TAG}${SUFFIX}" >> "$GITHUB_OUTPUT"
-          echo "sarif_file=trivy-zigflow-${{ matrix.variant }}-${PLATFORM_TAG}.sarif" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          target: ${{ steps.vars.outputs.target }}
-          build-args: |
-            GIT_COMMIT=${{ needs.metadata.outputs.commit_id }}
-            GIT_REPO=${{ needs.metadata.outputs.git_repo }}
-            VERSION=${{ needs.metadata.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: ${{ matrix.platform }}
-          load: ${{ needs.metadata.outputs.push == 'false' }}
-          push: ${{ needs.metadata.outputs.push == 'true' }}
-          tags: ${{ steps.vars.outputs.image_ref }}
-
-      - name: Pull images
-        if: ${{ needs.metadata.outputs.push == 'true' }}
-        run: docker pull ${{ steps.vars.outputs.image_ref }}
-
-      - name: Run Trivy scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ steps.vars.outputs.image_ref }}
-          format: sarif
-          output: ${{ steps.vars.outputs.sarif_file }}
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          limit-severities-for-sarif: true
-
-      - name: Upload Trivy scan results to GitHub Security tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: ${{ steps.vars.outputs.sarif_file }}
-
-  # Combine architecture-specific images into multi-arch manifests
-  docker_manifest:
-    runs-on: ubuntu-latest
-    if: needs.metadata.outputs.push == 'true'
-    needs:
-      - metadata
-      - docker
-    strategy:
-      matrix:
-        variant: [full, core]
-    steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
-
-      - name: Install Syft
-        uses: jaxxstorm/action-install-gh-release@v3.0.0
-        with:
-          repo: anchore/syft
-
-      - name: Generate manifest tags and create manifest
-        run: |
-          REPO_LOWER="ghcr.io/${GITHUB_REPOSITORY,,}"
-          VARIANT="${{ matrix.variant }}"
-
-          if [ "${VARIANT}" = "core" ]; then
-            SUFFIX="-core"
-            STABLE_TAG="core"
-            SHA_TAG="${GITHUB_SHA}-core"
-          else
-            SUFFIX=""
-            STABLE_TAG="latest"
-            SHA_TAG="${GITHUB_SHA}"
-          fi
-
-          SOURCE_IMAGES="${REPO_LOWER}:${GITHUB_SHA}-linux-amd64${SUFFIX}"
-
-          if [ "${{ needs.metadata.outputs.is_tag }}" = "true" ]; then
-            SOURCE_IMAGES="${SOURCE_IMAGES} ${REPO_LOWER}:${GITHUB_SHA}-linux-arm64${SUFFIX}"
-          fi
-
-          if [ "${{ needs.metadata.outputs.is_tag }}" = "true" ]; then
-            if [ "${{ needs.metadata.outputs.is_prerelease }}" = "true" ]; then
-              TARGET_TAGS="${REPO_LOWER}:prerelease${SUFFIX} ${REPO_LOWER}:${{ needs.metadata.outputs.tag }}${SUFFIX} ${REPO_LOWER}:${SHA_TAG}"
-            else
-              TARGET_TAGS="${REPO_LOWER}:${STABLE_TAG} ${REPO_LOWER}:${{ needs.metadata.outputs.tag }}${SUFFIX} ${REPO_LOWER}:${SHA_TAG}"
-            fi
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            TARGET_TAGS="${REPO_LOWER}:branch-main${SUFFIX} ${REPO_LOWER}:${SHA_TAG}"
-          else
-            BRANCH="${{ needs.metadata.outputs.current_branch }}"
-            BRANCH_TAG="branch-${BRANCH//\//-}"
-            BRANCH_TAG="${BRANCH_TAG,,}"
-            TARGET_TAGS="${REPO_LOWER}:${BRANCH_TAG}${SUFFIX} ${REPO_LOWER}:${SHA_TAG}"
-          fi
-
-          for TAG in ${TARGET_TAGS}; do
-            echo "Creating manifest for ${TAG} from: ${SOURCE_IMAGES}"
-            docker buildx imagetools create -t "${TAG}" ${SOURCE_IMAGES}
-
-            cosign sign --yes "${TAG}"
-            syft "${TAG}" -o cyclonedx-json > sbom.json
-            cosign attach sbom --sbom sbom.json "${TAG}"
-            cosign sign --yes --attachment sbom "${TAG}"
-          done
-
-  # Run GoReleaser in parallel
-  goreleaser:
-    runs-on: ubuntu-latest
-    needs: metadata
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        if: needs.metadata.outputs.is_tag == 'true'
-        with:
-          client-id: ${{ secrets.GORELEASER_APP_ID }}
-          private-key: ${{ secrets.GORELEASER_APP_PRIVATE_KEY }}
-          owner: zigflow
-          repositories: |
-            zigflow
-            homebrew-tap
-
-      - name: Run GoReleaser
-        if: needs.metadata.outputs.is_tag == 'true'
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          version: "~> v2"
-          args: release --clean
-        env:
-          GIT_REPO: ${{ needs.metadata.outputs.git_repo }}
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-
-      - name: Verify GoReleaser
-        uses: goreleaser/goreleaser-action@v7
-        if: needs.metadata.outputs.is_tag != 'true'
-        with:
-          version: "~> v2"
-          args: check
-          distribution: goreleaser
-
-  # Build and publish Helm chart in parallel
-  helm_chart:
-    runs-on: ubuntu-latest
-    needs: metadata
-    if: needs.metadata.outputs.is_tag == 'true'
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-
-      - name: Prepare chart README
-        run: |
-          go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest
-          helm-docs
-          yq -i '.version = "${{ needs.metadata.outputs.tag }}"' charts/zigflow/Chart.yaml
-          yq -i '.annotations."org.opencontainers.image.documentation" = "https://github.com/zigflow/zigflow/blob/${{ needs.metadata.outputs.tag }}/charts/zigflow/README.md"' charts/zigflow/Chart.yaml
-
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v7
-        id: gpg
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
-
-      # Helm requires the legacy GPG format
-      # @link https://helm.sh/docs/topics/provenance/#the-workflow
-      - name: Convert GPG v2 key
-        run: |
-          gpg --export > ~/.gnupg/pubring.gpg
-          gpg --batch --pinentry-mode loopback --yes --passphrase '${{ secrets.GPG_PASSPHRASE }}' --export-secret-key > ~/.gnupg/secring.gpg
-
-      - name: Publish Helm chart
-        uses: appany/helm-oci-chart-releaser@v0.5.0
-        with:
-          name: zigflow
-          registry: ghcr.io
-          repository: ${{ github.repository_owner }}/charts
-          tag: ${{ needs.metadata.outputs.tag }}
-          registry_username: ${{ github.actor }}
-          registry_password: ${{ secrets.GITHUB_TOKEN }}
-          sign: true
-          signing_key: ${{ steps.gpg.outputs.name }}
-          signing_passphrase: ${{ secrets.GPG_PASSPHRASE }}
-          update_dependencies: true
-
-  # Deploy the hosted MCP service on Northflank to the freshly published image.
-  # Runs only for full release tags (never prereleases) and only after the
-  # multi-arch image manifests have been published to GHCR.
-  deploy_mcp:
-    runs-on: ubuntu-latest
-    needs:
-      - metadata
-      - docker_manifest
-    if: needs.metadata.outputs.is_tag == 'true' && needs.metadata.outputs.is_prerelease == 'false'
-    steps:
-      - name: Deploy MCP service to Northflank
-        env:
-          NORTHFLANK_API_TOKEN: ${{ secrets.NORTHFLANK_API_TOKEN }}
-          NORTHFLANK_PROJECT_ID: ${{ secrets.NORTHFLANK_PROJECT_ID }}
-          NORTHFLANK_SERVICE_ID: ${{ secrets.NORTHFLANK_SERVICE_ID }}
-          NORTHFLANK_DOMAIN: ${{ secrets.NORTHFLANK_DOMAIN }}
-          NORTHFLANK_PORT_NAME: http
-          NORTHFLANK_INSTANCES: 1
-          IMAGE: ghcr.io/${{ github.repository }}:${{ needs.metadata.outputs.tag }}-core
-        run: |
-          set -euo pipefail
-
-          # Published image references are lowercase.
-          IMAGE="${IMAGE,,}"
-          echo "Updating Northflank service ${NORTHFLANK_SERVICE_ID} to ${IMAGE}"
-
-          # Build the request body. The entrypoint is already set
-          PAYLOAD="$(jq -n \
-            --arg image "${IMAGE}" \
-            --arg command "mcp --transport http --address 0.0.0.0:8080" \
-            --arg portName "${NORTHFLANK_PORT_NAME}" \
-            --arg domain "${NORTHFLANK_DOMAIN}" \
-            --argjson instances "${NORTHFLANK_INSTANCES}" \
-            '{
-              deployment: {
-                instances: $instances,
-                external: { imagePath: $image },
-                docker: {
-                  configType: "customCommand",
-                  customCommand: $command
-                }
-              },
-              ports: [
-                {
-                  name: $portName,
-                  internalPort: 8080,
-                  protocol: "HTTP",
-                  public: true,
-                  domains: [$domain],
-                  disableNfDomain: true
-                }
-              ]
-            }')"
-
-          # PATCH the deployment service. --fail-with-body makes curl exit
-          # non-zero on any non-2xx response.
-          curl --fail-with-body --silent --show-error \
-            --request PATCH \
-            --header "Authorization: Bearer ${NORTHFLANK_API_TOKEN}" \
-            --header "Content-Type: application/json" \
-            --data "${PAYLOAD}" \
-            "https://api.northflank.com/v1/projects/${NORTHFLANK_PROJECT_ID}/services/deployment/${NORTHFLANK_SERVICE_ID}"

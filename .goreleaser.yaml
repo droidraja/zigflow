@@ -9,10 +9,16 @@ builds:
     id: zigflow
     goos:
       - linux
-      - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
+    # The module path is NOT renamed on this fork, so the version/commit are
+    # injected into the upstream package path. Do not switch this to the fork's
+    # repository path or the ldflags stop matching and `zigflow version` reports
+    # "development".
     ldflags:
-      - -w -s -X {{ .Env.GIT_REPO }}/cmd.Version={{ .Version }} -X {{ .Env.GIT_REPO }}/cmd.GitCommit={{ .FullCommit }}
+      - -w -s -X github.com/zigflow/zigflow/cmd.Version={{ .Version }} -X github.com/zigflow/zigflow/cmd.GitCommit={{ .FullCommit }}
 archives:
   - formats:
       - binary
@@ -27,39 +33,6 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-homebrew_casks:
-  - name: zigflow
-    ids:
-      - binaries
-    repository:
-      owner: zigflow
-      name: homebrew-tap
-    directory: Casks
-    homepage: https://zigflow.dev
-    description: Define durable workflows in YAML, powered by Temporal
-    license: Apache-2.0
-    binaries:
-      - zigflow
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            binary_name = if Hardware::CPU.intel?
-              "zigflow_darwin_x86_64"
-            else
-              "zigflow_darwin_arm64"
-            end
-
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/#{binary_name}"]
-          end
-    caveats: |
-      Installs the latest stable Zigflow release.
-
-      For a specific version, use GitHub Releases or Docker.
-    commit_author:
-      name: zigflow-bot
-      email: bot@zigflow.dev
-    commit_msg_template: Brew cask update for {{ .ProjectName }} version {{ .Tag }}
 checksum:
   name_template: "checksums.txt"
 snapshot:
