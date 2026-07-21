@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/serverlessworkflow/sdk-go/v3/model"
@@ -62,7 +63,14 @@ func prepareWorkflowBytes(data []byte, validateSchema bool) (*model.Workflow, er
 		return nil, fmt.Errorf("error unmarshalling to zigflow raw workflow: %w", err)
 	}
 	if validateSchema {
-		if err := schema.ValidateDocument(raw); err != nil {
+		var schemaDocument map[string]any
+		if err := json.Unmarshal(jsonBytes, &schemaDocument); err != nil {
+			return nil, fmt.Errorf("error unmarshalling schema validation document: %w", err)
+		}
+		if err := prepareRunWorkflowSchemaExtensions(schemaDocument); err != nil {
+			return nil, err
+		}
+		if err := schema.ValidateDocument(schemaDocument); err != nil {
 			return nil, newSchemaValidationError(err)
 		}
 	}
@@ -102,6 +110,90 @@ func prepareWorkflowBytes(data []byte, validateSchema bool) (*model.Workflow, er
 	}
 
 	return wf, nil
+}
+
+var taskQueuePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// prepareRunWorkflowSchemaExtensions validates Zigflow-only run.workflow
+// fields, then removes them from the copy passed to the pinned upstream schema.
+// The original document remains intact for extension-model normalisation.
+func prepareRunWorkflowSchemaExtensions(doc map[string]any) error {
+	rawTasks, ok := doc["do"]
+	if !ok {
+		return nil
+	}
+	return prepareRunWorkflowTaskList(rawTasks)
+}
+
+func prepareRunWorkflowTaskList(raw any) error {
+	taskList, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	for i, item := range taskList {
+		namedTask, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		for name, body := range namedTask {
+			task, ok := body.(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := prepareRunWorkflowTask(task); err != nil {
+				return fmt.Errorf("task %q at index %d: %w", name, i, err)
+			}
+		}
+	}
+	return nil
+}
+
+func prepareRunWorkflowTask(task map[string]any) error {
+	if err := validateRunWorkflowTaskQueueExtension(task); err != nil {
+		return err
+	}
+	for _, nestedTaskList := range runWorkflowNestedTaskLists(task) {
+		if err := prepareRunWorkflowTaskList(nestedTaskList); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRunWorkflowTaskQueueExtension(task map[string]any) error {
+	if run, ok := task["run"].(map[string]any); ok {
+		if child, ok := run["workflow"].(map[string]any); ok {
+			if rawTaskQueue, present := child["taskQueue"]; present {
+				taskQueue, ok := rawTaskQueue.(string)
+				if !ok || !taskQueuePattern.MatchString(taskQueue) {
+					return fmt.Errorf("run.workflow.taskQueue must be a valid RFC 1123 DNS label")
+				}
+				delete(child, "taskQueue")
+			}
+		}
+	}
+	return nil
+}
+
+func runWorkflowNestedTaskLists(task map[string]any) []any {
+	nested := make([]any, 0, 4)
+	if rawDo, ok := task["do"]; ok {
+		nested = append(nested, rawDo)
+	}
+	if rawTry, ok := task["try"]; ok {
+		nested = append(nested, rawTry)
+	}
+	if rawCatch, ok := task["catch"].(map[string]any); ok {
+		if rawCatchDo, ok := rawCatch["do"]; ok {
+			nested = append(nested, rawCatchDo)
+		}
+	}
+	if rawFork, ok := task["fork"].(map[string]any); ok {
+		if rawBranches, ok := rawFork["branches"]; ok {
+			nested = append(nested, rawBranches)
+		}
+	}
+	return nested
 }
 
 // ValidateBytes validates raw YAML or JSON bytes against the Zigflow JSON

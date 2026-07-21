@@ -67,23 +67,40 @@ const InternalWorkflowInvocationVersion = 1
 // by a dynamic workflow closure tree. The definition remains outside State so
 // built-in activity payloads do not include it.
 type DynamicExecutionOptions struct {
-	definition []byte
+	definition        []byte
+	processRunContext ProcessRunContext
 }
 
-// NewDynamicExecutionOptions copies definition into immutable build options.
-func NewDynamicExecutionOptions(definition []byte) *DynamicExecutionOptions {
-	return &DynamicExecutionOptions{definition: bytes.Clone(definition)}
+// ProcessRunContext is the exact engine-owned identity propagated through
+// Zigflow's internal dynamic workflow boundaries.
+type ProcessRunContext struct {
+	TenantID           string `json:"tenantId"`
+	RunID              string `json:"runId"`
+	InitiatorSubjectID string `json:"initiatorSubjectId"`
+}
+
+// NewDynamicExecutionOptions copies immutable dynamic invocation values into
+// the closure-tree build options.
+func NewDynamicExecutionOptions(
+	definition []byte,
+	processRunContext ProcessRunContext,
+) *DynamicExecutionOptions {
+	return &DynamicExecutionOptions{
+		definition:        bytes.Clone(definition),
+		processRunContext: processRunContext,
+	}
 }
 
 // InternalWorkflowInvocation is the versioned one-argument contract used at
 // dynamic Zigflow workflow boundaries. Static boundaries retain their
 // historical two-argument input and state contract.
 type InternalWorkflowInvocation struct {
-	Version       int            `json:"internalVersion"`
-	Definition    []byte         `json:"definition"`
-	RecordedEnv   map[string]any `json:"recordedEnv"`
-	OriginalInput any            `json:"input,omitempty"`
-	State         *utils.State   `json:"state"`
+	Version           int               `json:"internalVersion"`
+	Definition        []byte            `json:"definition"`
+	ProcessRunContext ProcessRunContext `json:"processRunContext"`
+	RecordedEnv       map[string]any    `json:"recordedEnv"`
+	OriginalInput     any               `json:"input,omitempty"`
+	State             *utils.State      `json:"state"`
 }
 
 // ActivityDispatchPolicy controls how built-in activities are registered and
@@ -321,11 +338,12 @@ func (d *builder[T]) internalInvocationArgs(input any, state *utils.State) []any
 	}
 
 	return []any{InternalWorkflowInvocation{
-		Version:       InternalWorkflowInvocationVersion,
-		Definition:    bytes.Clone(d.taskOpts.DynamicExecution.definition),
-		RecordedEnv:   swUtils.DeepClone(state.Env),
-		OriginalInput: input,
-		State:         state,
+		Version:           InternalWorkflowInvocationVersion,
+		Definition:        bytes.Clone(d.taskOpts.DynamicExecution.definition),
+		ProcessRunContext: d.taskOpts.DynamicExecution.processRunContext,
+		RecordedEnv:       swUtils.DeepClone(state.Env),
+		OriginalInput:     input,
+		State:             state,
 	}}
 }
 
@@ -480,6 +498,8 @@ func NewTaskBuilder(
 		b, err = NewRaiseTaskBuilder(temporalWorker, t, taskName, doc, emitter, taskOpts)
 	case *model.RunTask:
 		b, err = NewRunTaskBuilder(temporalWorker, t, taskName, doc, emitter, taskOpts)
+	case *models.RunWorkflowExtTask:
+		b, err = NewRunWorkflowExtTaskBuilder(temporalWorker, t, taskName, doc, emitter, taskOpts)
 	case *model.SetTask:
 		b, err = NewSetTaskBuilder(temporalWorker, t, taskName, doc, emitter, taskOpts)
 	case *model.SwitchTask:

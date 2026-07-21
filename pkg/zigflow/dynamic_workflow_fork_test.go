@@ -116,6 +116,7 @@ func TestDynamicWorkflowForkPropagatesSnapshotAndIsolatesBranchState(t *testing.
 	for _, invocation := range invocations {
 		require.Equal(t, tasks.InternalWorkflowInvocationVersion, invocation.Version)
 		require.Equal(t, definition, invocation.Definition)
+		require.Equal(t, testProcessRunContext(), invocation.ProcessRunContext)
 		require.Equal(t, recordedEnv, invocation.RecordedEnv)
 		require.Equal(t, input, invocation.OriginalInput)
 		require.Equal(t, input, invocation.State.Input)

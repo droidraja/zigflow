@@ -349,9 +349,13 @@ workflow units.
 | Name | Type | Required | Description |
 | --- | :---: | :---: | --- |
 | type | `string` | `yes` | The workflow type to run |
-| input | `any` | `no` | The data, if any, to pass as input to the workflow to execute. The value should be validated against the target workflow's input schema, if specified |
+| input | `object` | `no` | The data to pass to the workflow. Values may contain runtime expressions. For a cross-task-queue native child, Zigflow resolves this object and passes it as exactly one Temporal argument. If omitted, the argument is an empty object. |
+| taskQueue | `string` | `no` | Selects the Temporal task queue for a native child workflow call. When omitted, Zigflow runs an intra-Zigflow child on the current queue with Zigflow's internal input and state arguments. |
 
 ### Example {/*#workflow-example*/}
+
+This intra-Zigflow example omits `taskQueue`, so its named child workflows use
+Zigflow's internal workflow contract on the current queue.
 
 ```yaml
 document:
@@ -392,6 +396,35 @@ do:
               seconds: 3
 ```
 
+### Cross-task-queue native child workflow
+
+Set `taskQueue` to call a workflow implemented by another Temporal SDK or
+deployed on another worker queue. The target receives one resolved input
+argument. Zigflow does not impose an application-specific request type.
+
+```yaml
+document:
+  dsl: 1.0.0
+  taskQueue: orchestration-workers
+  workflowType: dispatch-agent-step
+  version: 1.0.0
+do:
+  - invoke-agent:
+      run:
+        await: true
+        workflow:
+          type: agent-run-workflow
+          taskQueue: agent-workers
+          input:
+            tenantId: ${ $input.tenantId }
+            runId: ${ $input.runId }
+            stepRef: ${ $input.stepRef }
+```
+
+With `await: false`, Zigflow retains Temporal's abandon parent-close policy and
+does not wait for the child result. The child is still scheduled directly on
+the selected task queue with one argument.
+
 ## Gotchas
 
 **Container execution has runtime-dependent prerequisites.** The runtime is
@@ -414,8 +447,9 @@ Using any other scheme (for example `ftp://`) will cause the task to fail with
 an unsupported scheme error.
 
 **`namespace` and `version` in `run.workflow` are not used.** These fields
-exist for Serverless Workflow specification compatibility only. The target
-workflow is looked up by `name` on the same task queue.
+exist for Serverless Workflow specification compatibility only. Without
+`taskQueue`, the target workflow is looked up by type on the current task
+queue. Use `taskQueue` for the explicit native child contract described above.
 
 ## Related pages
 

@@ -78,8 +78,9 @@ func dynamicReplayHistory(t *testing.T) *historypb.History {
 
 	dc := converter.GetDefaultDataConverter()
 	startedInput, err := dc.ToPayloads(zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: []byte(dynamicReplayDefinition),
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        []byte(dynamicReplayDefinition),
+		ProcessRunContext: testProcessRunContext(),
 	})
 	require.NoError(t, err)
 

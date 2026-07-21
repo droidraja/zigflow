@@ -64,9 +64,10 @@ func TestDynamicWorkflowForArrayResolvesNestedTasks(t *testing.T) {
 		},
 	)
 	harness.execute("dynamic-for", zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: definition,
-		Input:      input,
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		Input:             input,
+		ProcessRunContext: testProcessRunContext(),
 	})
 
 	requireWorkflowResult(t, harness.env, []any{
@@ -79,6 +80,7 @@ func TestDynamicWorkflowForArrayResolvesNestedTasks(t *testing.T) {
 	for index, invocation := range invocations {
 		require.Equal(t, tasks.InternalWorkflowInvocationVersion, invocation.Version)
 		require.Equal(t, definition, invocation.Definition)
+		require.Equal(t, testProcessRunContext(), invocation.ProcessRunContext)
 		require.Equal(t, input, invocation.OriginalInput)
 		require.Equal(t, input, invocation.State.Input)
 		require.Equal(t, float64(index), invocation.State.Data[dynamicForIndexKey])
@@ -230,8 +232,9 @@ func TestDynamicWorkflowForNestedEndReachesRootWithEffectiveOutput(t *testing.T)
 
 func dynamicInputWithUserInput(definition []byte, input any) zigflow.DynamicWorkflowInput {
 	return zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: definition,
-		Input:      input,
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		Input:             input,
+		ProcessRunContext: testProcessRunContext(),
 	}
 }

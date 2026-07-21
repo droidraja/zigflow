@@ -77,8 +77,9 @@ func TestDynamicWorkflowE2E(t *testing.T) {
 		ID:        workflowID,
 		TaskQueue: dynamicTaskQueue,
 	}, dynamicWorkflowType, zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: definition,
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		ProcessRunContext: dynamicE2EProcessRunContext(),
 		Input: map[string]any{
 			"items":    []any{"first", "second"},
 			"marker":   "original-input",
@@ -114,8 +115,9 @@ func TestDynamicWorkflowE2E(t *testing.T) {
 	invalidRun, err := c.ExecuteWorkflow(runCtx, client.StartWorkflowOptions{
 		TaskQueue: dynamicTaskQueue,
 	}, "arbitrary-invalid-input", zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion + 1,
-		Definition: definition,
+		Version:           zigflow.DynamicWorkflowInputVersion + 1,
+		Definition:        definition,
+		ProcessRunContext: dynamicE2EProcessRunContext(),
 	})
 	require.NoError(t, err, "start invalid dynamic workflow")
 	require.Error(t, invalidRun.Get(runCtx, nil), "invalid envelope must fail")
@@ -147,8 +149,9 @@ do:
 	changedRun, err := c.ExecuteWorkflow(runCtx, client.StartWorkflowOptions{
 		TaskQueue: dynamicTaskQueue,
 	}, "changed-environment-probe", zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: changedDefinition,
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        changedDefinition,
+		ProcessRunContext: dynamicE2EProcessRunContext(),
 	})
 	require.NoError(t, err, "execute workflow after worker restart")
 	var changedResult map[string]any
@@ -209,6 +212,7 @@ func assertPublicSnapshot(t *testing.T, history *historypb.History, definition [
 	var input zigflow.DynamicWorkflowInput
 	require.NoError(t, converter.GetDefaultDataConverter().FromPayloads(started.GetInput(), &input))
 	require.Equal(t, definition, input.Definition)
+	require.Equal(t, dynamicE2EProcessRunContext(), input.ProcessRunContext)
 }
 
 func assertInternalSnapshot(t *testing.T, history *historypb.History, definition []byte) {
@@ -219,5 +223,14 @@ func assertInternalSnapshot(t *testing.T, history *historypb.History, definition
 	var invocation tasks.InternalWorkflowInvocation
 	require.NoError(t, converter.GetDefaultDataConverter().FromPayloads(started.GetInput(), &invocation))
 	require.Equal(t, definition, invocation.Definition)
+	require.Equal(t, dynamicE2EProcessRunContext(), invocation.ProcessRunContext)
 	require.Equal(t, map[string]any{"RELEASE": recordedRelease}, invocation.RecordedEnv)
+}
+
+func dynamicE2EProcessRunContext() zigflow.ProcessRunContext {
+	return zigflow.ProcessRunContext{
+		TenantID:           "tenant-e2e",
+		RunID:              "run-e2e",
+		InitiatorSubjectID: "subject-e2e",
+	}
 }

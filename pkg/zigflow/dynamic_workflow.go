@@ -43,10 +43,16 @@ const (
 // DynamicWorkflowInput is the versioned public input recorded in the Temporal
 // workflow start event. Definition contains the complete YAML or JSON snapshot.
 type DynamicWorkflowInput struct {
-	Version    int    `json:"version"`
-	Definition []byte `json:"definition"`
-	Input      any    `json:"input,omitempty"`
+	Version           int               `json:"version"`
+	Definition        []byte            `json:"definition"`
+	Input             any               `json:"input,omitempty"`
+	ProcessRunContext ProcessRunContext `json:"processRunContext"`
 }
+
+// ProcessRunContext is engine-owned execution identity. It is transported
+// beside authored input and is never copied into Zigflow State, so workflow
+// expressions cannot read or override it.
+type ProcessRunContext = tasks.ProcessRunContext
 
 // DynamicWorkflowOptions contains immutable worker runtime options captured by
 // a dynamic workflow handler factory.
@@ -118,7 +124,7 @@ func NewDynamicWorkflowHandler(
 		}
 
 		taskOpts := cloneTaskOpts(capturedTaskOpts)
-		taskOpts.DynamicExecution = tasks.NewDynamicExecutionOptions(input.Definition)
+		taskOpts.DynamicExecution = tasks.NewDynamicExecutionOptions(input.Definition, input.ProcessRunContext)
 		registry, err := BuildPreparedWorkflow(doc, WorkflowBuildOptions{
 			Envvars:  recordedEnv,
 			Emitter:  cloudevents.NewNoOpEvents(),
@@ -149,11 +155,12 @@ func NewDynamicWorkflowHandler(
 }
 
 type dynamicWorkflowInvocation struct {
-	Definition  []byte
-	Input       any
-	RecordedEnv map[string]any
-	State       *utils.State
-	Internal    bool
+	Definition        []byte
+	Input             any
+	ProcessRunContext ProcessRunContext
+	RecordedEnv       map[string]any
+	State             *utils.State
+	Internal          bool
 }
 
 func decodeDynamicWorkflowInvocation(args converter.EncodedValues) (dynamicWorkflowInvocation, error) {
@@ -179,13 +186,17 @@ func decodeDynamicWorkflowInvocation(args converter.EncodedValues) (dynamicWorkf
 		if input.State == nil {
 			return dynamicWorkflowInvocation{}, fmt.Errorf("internal workflow invocation state must not be nil")
 		}
+		if err := input.ProcessRunContext.Validate(); err != nil {
+			return dynamicWorkflowInvocation{}, err
+		}
 
 		return dynamicWorkflowInvocation{
-			Definition:  bytes.Clone(input.Definition),
-			Input:       input.OriginalInput,
-			RecordedEnv: swUtils.DeepClone(input.RecordedEnv),
-			State:       input.State,
-			Internal:    true,
+			Definition:        bytes.Clone(input.Definition),
+			Input:             input.OriginalInput,
+			ProcessRunContext: input.ProcessRunContext,
+			RecordedEnv:       swUtils.DeepClone(input.RecordedEnv),
+			State:             input.State,
+			Internal:          true,
 		}, nil
 	}
 
@@ -200,10 +211,14 @@ func decodeDynamicWorkflowInvocation(args converter.EncodedValues) (dynamicWorkf
 			DynamicWorkflowInputVersion,
 		)
 	}
+	if err := input.ProcessRunContext.Validate(); err != nil {
+		return dynamicWorkflowInvocation{}, err
+	}
 
 	return dynamicWorkflowInvocation{
-		Definition: bytes.Clone(input.Definition),
-		Input:      input.Input,
+		Definition:        bytes.Clone(input.Definition),
+		Input:             input.Input,
+		ProcessRunContext: input.ProcessRunContext,
 	}, nil
 }
 

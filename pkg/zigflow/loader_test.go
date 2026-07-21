@@ -39,6 +39,48 @@ func writeWorkflow(t *testing.T, content string) string {
 	return path
 }
 
+func TestPrepareWorkflowLoadsCrossTaskQueueRunWorkflowExtension(t *testing.T) {
+	doc, err := zigflow.PrepareWorkflow([]byte(`document:
+  dsl: 1.0.0
+  taskQueue: parent-workers
+  workflowType: parent-workflow
+  version: 1.0.0
+do:
+  - invoke-agent:
+      run:
+        workflow:
+          type: agent-run-workflow
+          taskQueue: agent-workers
+          input:
+            runId: ${ $input.runId }
+`))
+	require.NoError(t, err)
+
+	tasks := *doc.Do
+	require.Len(t, tasks, 1)
+	extended, ok := tasks[0].Task.(*models.RunWorkflowExtTask)
+	require.True(t, ok)
+	require.Equal(t, "agent-run-workflow", extended.Run.Workflow.Type)
+	require.Equal(t, "agent-workers", extended.Run.Workflow.TaskQueue)
+	require.Equal(t, map[string]any{dynamicTestRunIDKey: "${ $input.runId }"}, extended.Run.Workflow.Input)
+}
+
+func TestPrepareWorkflowRejectsInvalidCrossTaskQueue(t *testing.T) {
+	_, err := zigflow.PrepareWorkflow([]byte(`document:
+  dsl: 1.0.0
+  taskQueue: parent-workers
+  workflowType: parent-workflow
+  version: 1.0.0
+do:
+  - invoke-agent:
+      run:
+        workflow:
+          type: agent-run-workflow
+          taskQueue: "Not A Queue"
+`))
+	require.ErrorContains(t, err, "run.workflow.taskQueue must be a valid RFC 1123 DNS label")
+}
+
 func TestLoadWorkflowFile(t *testing.T) {
 	tests := []struct {
 		Name        string

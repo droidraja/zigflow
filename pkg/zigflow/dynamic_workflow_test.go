@@ -39,6 +39,12 @@ const (
 	dynamicRequestKey          = "request"
 	dynamicOriginalInput       = "original-user-input"
 	dynamicRecordedEnv         = "recorded-env"
+	dynamicTestTenantIDKey     = "tenantId"
+	dynamicTestRunIDKey        = "runId"
+	dynamicTestSubjectIDKey    = "initiatorSubjectId"
+	dynamicTestTenantID        = "tenant"
+	dynamicTestRunID           = "run"
+	dynamicTestSubjectID       = "subject"
 )
 
 func TestDynamicWorkflowExecutesFlatDefinitionWithEnvelopeInput(t *testing.T) {
@@ -46,9 +52,10 @@ func TestDynamicWorkflowExecutesFlatDefinitionWithEnvelopeInput(t *testing.T) {
 	harness := newDynamicWorkflowTestHarness(t, handler)
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
 	harness.execute(dynamicSetSwitchType, zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: loadDynamicWorkflowFixture(t, "set-switch.yaml"),
-		Input:      map[string]any{"selected": "match"},
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        loadDynamicWorkflowFixture(t, "set-switch.yaml"),
+		Input:             map[string]any{"selected": "match"},
+		ProcessRunContext: testProcessRunContext(),
 	})
 
 	requireWorkflowResult(t, harness.env, map[string]any{
@@ -76,9 +83,10 @@ func TestDynamicWorkflowCapturesImmutableEnvironmentOptions(t *testing.T) {
 	harness := newDynamicWorkflowTestHarness(t, handler)
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
 	harness.execute("dynamic-env", zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: definition,
-		Input:      map[string]any{"value": "user-input"},
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		Input:             map[string]any{"value": "user-input"},
+		ProcessRunContext: testProcessRunContext(),
 	})
 
 	requireWorkflowResult(t, harness.env, map[string]any{
@@ -124,9 +132,10 @@ do:
 		harness := newDynamicWorkflowTestHarness(t, handler)
 		harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
 		harness.execute("source", zigflow.DynamicWorkflowInput{
-			Version:    zigflow.DynamicWorkflowInputVersion,
-			Definition: definition,
-			Input:      map[string]any{dynamicRequestKey: "redirect-input"},
+			Version:           zigflow.DynamicWorkflowInputVersion,
+			Definition:        definition,
+			Input:             map[string]any{dynamicRequestKey: "redirect-input"},
+			ProcessRunContext: testProcessRunContext(),
 		})
 
 		requireWorkflowResult(t, harness.env, map[string]any{
@@ -142,9 +151,10 @@ do:
 		harness := newDynamicWorkflowTestHarness(t, handler)
 		harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
 		harness.execute("target", zigflow.DynamicWorkflowInput{
-			Version:    zigflow.DynamicWorkflowInputVersion,
-			Definition: definition,
-			Input:      map[string]any{dynamicRequestKey: "direct-input"},
+			Version:           zigflow.DynamicWorkflowInputVersion,
+			Definition:        definition,
+			Input:             map[string]any{dynamicRequestKey: "direct-input"},
+			ProcessRunContext: testProcessRunContext(),
 		})
 
 		requireWorkflowResult(t, harness.env, map[string]any{
@@ -197,9 +207,10 @@ do:
 		firstRun.env.SetContinueAsNewSuggested(true)
 	})
 	firstRun.execute("dynamic-continue-as-new", zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: definition,
-		Input:      input,
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		Input:             input,
+		ProcessRunContext: testProcessRunContext(),
 	})
 
 	var continueErr *workflow.ContinueAsNewError
@@ -212,6 +223,7 @@ do:
 	require.NoError(t, converter.GetDefaultDataConverter().FromPayloads(continueErr.Input, &invocation))
 	require.Equal(t, tasks.InternalWorkflowInvocationVersion, invocation.Version)
 	require.Equal(t, definition, invocation.Definition)
+	require.Equal(t, testProcessRunContext(), invocation.ProcessRunContext)
 	require.Equal(t, map[string]any{"DEPLOYMENT": dynamicRecordedEnv}, invocation.RecordedEnv)
 	require.Equal(t, input, invocation.OriginalInput)
 	require.NotNil(t, invocation.State)
@@ -350,8 +362,9 @@ func TestDynamicWorkflowRejectsInputAndDispatchMismatches(t *testing.T) {
 			workflowType: dynamicSetSwitchType,
 			taskQueue:    dynamicTestTaskQueue,
 			input: zigflow.DynamicWorkflowInput{
-				Version:    zigflow.DynamicWorkflowInputVersion + 1,
-				Definition: definition,
+				Version:           zigflow.DynamicWorkflowInputVersion + 1,
+				Definition:        definition,
+				ProcessRunContext: testProcessRunContext(),
 			},
 			errorType: dynamicInputApplicationErr,
 			message:   "unsupported dynamic workflow input version",
@@ -361,7 +374,8 @@ func TestDynamicWorkflowRejectsInputAndDispatchMismatches(t *testing.T) {
 			workflowType: dynamicSetSwitchType,
 			taskQueue:    dynamicTestTaskQueue,
 			input: tasks.InternalWorkflowInvocation{
-				Version: tasks.InternalWorkflowInvocationVersion + 1,
+				Version:           tasks.InternalWorkflowInvocationVersion + 1,
+				ProcessRunContext: testProcessRunContext(),
 			},
 			errorType: dynamicInputApplicationErr,
 			message:   "unsupported internal workflow invocation version",
@@ -371,8 +385,9 @@ func TestDynamicWorkflowRejectsInputAndDispatchMismatches(t *testing.T) {
 			workflowType: dynamicSetSwitchType,
 			taskQueue:    dynamicTestTaskQueue,
 			input: zigflow.DynamicWorkflowInput{
-				Version:    zigflow.DynamicWorkflowInputVersion,
-				Definition: []byte(" \n\t"),
+				Version:           zigflow.DynamicWorkflowInputVersion,
+				Definition:        []byte(" \n\t"),
+				ProcessRunContext: testProcessRunContext(),
 			},
 			errorType: dynamicInputApplicationErr,
 			message:   "dynamic workflow definition must not be empty",
@@ -411,6 +426,99 @@ func TestDynamicWorkflowRejectsInputAndDispatchMismatches(t *testing.T) {
 			requireScheduledChildWorkflowNames(t, harness)
 		})
 	}
+}
+
+func TestDynamicWorkflowRequiresExactProcessRunContext(t *testing.T) {
+	definition := loadDynamicWorkflowFixture(t, "set-switch.yaml")
+	tests := []struct {
+		name    string
+		context any
+		message string
+	}{
+		{name: "missing context", context: nil, message: "processRunContext.tenantId must be a non-empty string"},
+		{
+			name: "missing field",
+			context: map[string]any{
+				dynamicTestTenantIDKey: dynamicTestTenantID,
+				dynamicTestRunIDKey:    dynamicTestRunID,
+			},
+			message: "initiatorSubjectId must be a non-empty string",
+		},
+		{
+			name: "empty field",
+			context: map[string]any{
+				dynamicTestTenantIDKey:  dynamicTestTenantID,
+				dynamicTestRunIDKey:     " ",
+				dynamicTestSubjectIDKey: dynamicTestSubjectID,
+			},
+			message: "runId must be a non-empty string",
+		},
+		{
+			name: "wrong type",
+			context: map[string]any{
+				dynamicTestTenantIDKey:  1,
+				dynamicTestRunIDKey:     dynamicTestRunID,
+				dynamicTestSubjectIDKey: dynamicTestSubjectID,
+			},
+			message: "cannot unmarshal number",
+		},
+		{
+			name: "extra field",
+			context: map[string]any{
+				dynamicTestTenantIDKey:  dynamicTestTenantID,
+				dynamicTestRunIDKey:     dynamicTestRunID,
+				dynamicTestSubjectIDKey: dynamicTestSubjectID,
+				"extra":                 true,
+			},
+			message: `unknown field "extra"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			envelope := map[string]any{
+				"version":    zigflow.DynamicWorkflowInputVersion,
+				"definition": definition,
+			}
+			if test.context != nil {
+				envelope["processRunContext"] = test.context
+			}
+
+			harness := newDynamicWorkflowTestHarness(
+				t,
+				zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}),
+			)
+			harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+			harness.execute(dynamicSetSwitchType, envelope)
+
+			applicationError := requireNonRetryableApplicationError(t, harness.env)
+			assert.Equal(t, dynamicInputApplicationErr, applicationError.Type())
+			assert.Contains(t, applicationError.Error(), test.message)
+			requireScheduledActivityNames(t, harness)
+			requireScheduledChildWorkflowNames(t, harness)
+		})
+	}
+}
+
+func TestDynamicWorkflowDoesNotExposeEngineProcessRunContextAsAuthoredState(t *testing.T) {
+	definition := flatDynamicDefinition("dynamic-engine-context-isolation", `
+  - inspect:
+      output:
+        as:
+          contextValue: ${ $context.processRunContext }
+          dataValue: ${ $data.processRunContext }
+          inputValue: ${ $input.processRunContext }
+      set:
+        inspected: true`)
+	harness := newDynamicWorkflowTestHarness(t, zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}))
+	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+	harness.execute("dynamic-engine-context-isolation", dynamicInput(definition))
+
+	requireWorkflowResult(t, harness.env, map[string]any{
+		"contextValue": nil,
+		"dataValue":    nil,
+		"inputValue":   nil,
+	})
 }
 
 func TestDynamicWorkflowBuildFailureIsNonRetryable(t *testing.T) {
@@ -461,8 +569,17 @@ do:
 
 func dynamicInput(definition []byte) zigflow.DynamicWorkflowInput {
 	return zigflow.DynamicWorkflowInput{
-		Version:    zigflow.DynamicWorkflowInputVersion,
-		Definition: definition,
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		ProcessRunContext: testProcessRunContext(),
+	}
+}
+
+func testProcessRunContext() zigflow.ProcessRunContext {
+	return zigflow.ProcessRunContext{
+		TenantID:           "tenant-1",
+		RunID:              "run-1",
+		InitiatorSubjectID: "subject-1",
 	}
 }
 

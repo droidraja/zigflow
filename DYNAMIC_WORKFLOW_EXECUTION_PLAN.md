@@ -108,16 +108,18 @@ The initial public input is one versioned, serialisable envelope:
 
 ```go
 type DynamicWorkflowInput struct {
-    Version    int    `json:"version"`
-    Definition []byte `json:"definition"`
-    Input      any    `json:"input,omitempty"`
+    Version           int               `json:"version"`
+    Definition        []byte            `json:"definition"`
+    Input             any               `json:"input,omitempty"`
+    ProcessRunContext ProcessRunContext `json:"processRunContext"`
 }
 ```
 
 The exact exported name may change during implementation, but the contract
-must have an explicit version, raw definition bytes, and user input. Raw bytes
-are recorded in Temporal history as part of the start event, which provides
-snapshot-at-start behaviour.
+must have an explicit version, raw definition bytes, user input, and the exact
+engine-owned process run context. Raw bytes and execution identity are recorded
+in Temporal history as part of the start event, which provides snapshot-at-start
+behaviour.
 
 Definition references are a later milestone. Fetching a reference must use an
 activity. It must never read a file, network resource, environment-dependent
@@ -170,7 +172,8 @@ alone.
 
 Continue-As-New, redirect children, For iterations, Fork branches, and Try or
 Catch children need the definition snapshot. Add an internal versioned
-invocation envelope containing definition bytes, user input, and `*utils.State`.
+invocation envelope containing definition bytes, process run context, user
+input, and `*utils.State`.
 In dynamic mode those boundaries pass the envelope as one Temporal argument.
 In static mode they continue to pass the historical `(input, state)` arguments.
 
@@ -210,9 +213,13 @@ have fixed activity type names instead of per-task activity type aliases.
 ### 7. Preserve external child semantics
 
 `run.workflow` references another deployed Temporal workflow by name. The
-inline definition does not contain the target workflow definition. Leave this
-path unchanged. The target must be explicitly registered elsewhere. Dynamic
-catalogue resolution for another definition is out of scope.
+inline definition does not contain the target workflow definition. Without an
+authored `taskQueue`, the existing intra-Zigflow path keeps the historical
+`(input, state)` arguments on the current queue. With `taskQueue`, Zigflow
+schedules a native Temporal child on that queue and passes the resolved
+authored `input` object as exactly one argument. The target must be explicitly
+registered elsewhere. Dynamic catalogue resolution for another definition is
+out of scope.
 
 ### 8. External side effects are disabled in the dynamic milestone
 

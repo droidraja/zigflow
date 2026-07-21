@@ -101,6 +101,16 @@ const (
 	testConstCount = "count"
 	// testConstForRefDataCount is the jq expression used to reference a numeric iteration count via $data.count.
 	testConstForRefDataCount = "${ $data.count }"
+	// testProcessTenantID is the tenant identity used by dynamic invocation tests.
+	testProcessTenantID = "tenant-1"
+	// testProcessRunID is the run identity used by dynamic invocation tests.
+	testProcessRunID = "run-1"
+	// testProcessSubjectID is the initiating subject used by dynamic invocation tests.
+	testProcessSubjectID = "subject-1"
+	// testNativeRunIDKey is the run ID field sent to native child workflows.
+	testNativeRunIDKey = "runId"
+	// testNativeStepRefKey is the step reference field sent to native child workflows.
+	testNativeStepRefKey = "stepRef"
 )
 
 var (

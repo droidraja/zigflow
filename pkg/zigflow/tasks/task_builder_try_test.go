@@ -150,7 +150,11 @@ func TestTryTaskBuilderExecUsesDynamicInvocationForTryAndCatch(t *testing.T) {
 					Do: &model.TaskList{},
 				},
 			},
-			taskOpts: &TaskOpts{DynamicExecution: NewDynamicExecutionOptions(definition)},
+			taskOpts: &TaskOpts{DynamicExecution: NewDynamicExecutionOptions(definition, ProcessRunContext{
+				TenantID:           testProcessTenantID,
+				RunID:              testProcessRunID,
+				InitiatorSubjectID: testProcessSubjectID,
+			})},
 		},
 		tryChildWorkflowName:   "dynamic-try-child",
 		catchChildWorkflowName: "dynamic-catch-child",

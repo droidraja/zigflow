@@ -27,7 +27,9 @@ import (
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/activities"
 	"github.com/zigflow/zigflow/pkg/zigflow/flow"
+	zigflowModels "github.com/zigflow/zigflow/pkg/zigflow/models"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 )
@@ -186,6 +188,199 @@ func TestRunTaskBuilderRunWorkflow(t *testing.T) {
 			} else {
 				assert.Equal(t, map[string]any{testConstChild: testConstDone}, val)
 			}
+		})
+	}
+}
+
+func TestRunWorkflowNativeChildUsesSelectedTaskQueueAndOneResolvedArgument(t *testing.T) {
+	const (
+		childType      = "agent-run-workflow"
+		childTaskQueue = "agent-workers"
+	)
+	task := &zigflowModels.RunWorkflowExtTask{
+		Run: zigflowModels.RunWorkflowExtConfiguration{
+			Await: utils.Ptr(true),
+			Workflow: zigflowModels.RunWorkflowExt{
+				Type:      childType,
+				TaskQueue: childTaskQueue,
+				Input: map[string]any{
+					testNativeRunIDKey:   "${ $input.runId }",
+					testNativeStepRefKey: "${ $data.stepRef }",
+				},
+			},
+		},
+	}
+	builder, err := NewRunWorkflowExtTaskBuilder(nil, task, "run-agent", nil, testEvents, nil)
+	require.NoError(t, err)
+	require.NoError(t, builder.PostLoad())
+	require.NoError(t, builder.Validate())
+	fn, err := builder.Build()
+	require.NoError(t, err)
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var scheduledType, scheduledQueue string
+	var scheduledRequest map[string]any
+	var decodeErr error
+	env.SetOnChildWorkflowStartedListener(
+		func(info *workflow.Info, _ workflow.Context, args converter.EncodedValues) {
+			scheduledType = info.WorkflowType.Name
+			scheduledQueue = info.TaskQueueName
+			decodeErr = args.Get(&scheduledRequest)
+		},
+	)
+	env.RegisterWorkflowWithOptions(
+		func(_ workflow.Context, request map[string]any) (map[string]any, error) {
+			return map[string]any{"accepted": request}, nil
+		},
+		workflow.RegisterOptions{Name: childType},
+	)
+	state := utils.NewState()
+	state.Input = map[string]any{testNativeRunIDKey: "run-123"}
+	state.Data = map[string]any{testNativeStepRefKey: "step-456"}
+	env.RegisterWorkflowWithOptions(func(ctx workflow.Context) (any, error) {
+		return fn(ctx, state.Input, state)
+	}, workflow.RegisterOptions{Name: "native-child-host"})
+
+	env.ExecuteWorkflow("native-child-host")
+	require.NoError(t, env.GetWorkflowError())
+	require.NoError(t, decodeErr)
+	require.Equal(t, childType, scheduledType)
+	require.Equal(t, childTaskQueue, scheduledQueue)
+	require.Equal(t, map[string]any{
+		testNativeRunIDKey:   "run-123",
+		testNativeStepRefKey: "step-456",
+	}, scheduledRequest)
+	requireWorkflowResult := map[string]any{}
+	require.NoError(t, env.GetWorkflowResult(&requireWorkflowResult))
+	require.Equal(t, map[string]any{"accepted": scheduledRequest}, requireWorkflowResult)
+}
+
+func TestRunWorkflowNativeChildNoAwaitSchedulesEmptyObjectAndReturnsImmediately(t *testing.T) {
+	const (
+		childType      = "fire-and-forget-workflow"
+		childTaskQueue = "external-workers"
+	)
+	task := &zigflowModels.RunWorkflowExtTask{
+		Run: zigflowModels.RunWorkflowExtConfiguration{
+			Await: utils.Ptr(false),
+			Workflow: zigflowModels.RunWorkflowExt{
+				Type:      childType,
+				TaskQueue: childTaskQueue,
+			},
+		},
+	}
+	builder, err := NewRunWorkflowExtTaskBuilder(nil, task, "dispatch", nil, testEvents, nil)
+	require.NoError(t, err)
+	require.NoError(t, builder.PostLoad())
+	require.NoError(t, builder.Validate())
+	fn, err := builder.Build()
+	require.NoError(t, err)
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var scheduledType, scheduledQueue string
+	var scheduledRequest map[string]any
+	var decodeErr error
+	env.SetOnChildWorkflowStartedListener(
+		func(info *workflow.Info, _ workflow.Context, args converter.EncodedValues) {
+			scheduledType = info.WorkflowType.Name
+			scheduledQueue = info.TaskQueueName
+			decodeErr = args.Get(&scheduledRequest)
+		},
+	)
+	env.RegisterWorkflowWithOptions(
+		func(workflow.Context, map[string]any) error { return nil },
+		workflow.RegisterOptions{Name: childType},
+	)
+	state := utils.NewState()
+	env.RegisterWorkflowWithOptions(func(ctx workflow.Context) (any, error) {
+		return fn(ctx, map[string]any{}, state)
+	}, workflow.RegisterOptions{Name: "native-no-await-host"})
+
+	env.ExecuteWorkflow("native-no-await-host")
+	require.NoError(t, env.GetWorkflowError())
+	require.NoError(t, decodeErr)
+	require.Equal(t, childType, scheduledType)
+	require.Equal(t, childTaskQueue, scheduledQueue)
+	require.Empty(t, scheduledRequest)
+	require.Contains(t, state.Data, "dispatch")
+	require.Nil(t, state.Data["dispatch"])
+}
+
+func TestRunWorkflowNoAwaitWaitsForChildStart(t *testing.T) {
+	const childType = "fire-and-forget-start-barrier"
+
+	tests := []struct {
+		name         string
+		build        func(t *testing.T) TemporalWorkflowFunc
+		registerMock func(env *testsuite.TestWorkflowEnvironment)
+	}{
+		{
+			name: "intra-Zigflow child",
+			build: func(t *testing.T) TemporalWorkflowFunc {
+				t.Helper()
+				builder, err := NewRunTaskBuilder(nil, &model.RunTask{
+					Run: model.RunTaskConfiguration{
+						Await: utils.Ptr(false),
+						Workflow: &model.RunWorkflow{
+							Name: childType,
+						},
+					},
+				}, "dispatch", nil, testEvents, nil)
+				require.NoError(t, err)
+				fn, err := builder.Build()
+				require.NoError(t, err)
+				return fn
+			},
+			registerMock: func(env *testsuite.TestWorkflowEnvironment) {
+				child := func(workflow.Context, any, *utils.State) (any, error) { return nil, nil }
+				env.RegisterWorkflowWithOptions(child, workflow.RegisterOptions{Name: childType})
+				env.OnWorkflow(child, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil, testsuite.ErrMockStartChildWorkflowFailed)
+			},
+		},
+		{
+			name: "native cross-task-queue child",
+			build: func(t *testing.T) TemporalWorkflowFunc {
+				t.Helper()
+				builder, err := NewRunWorkflowExtTaskBuilder(nil, &zigflowModels.RunWorkflowExtTask{
+					Run: zigflowModels.RunWorkflowExtConfiguration{
+						Await: utils.Ptr(false),
+						Workflow: zigflowModels.RunWorkflowExt{
+							Type:      childType,
+							TaskQueue: "external-workers",
+						},
+					},
+				}, "dispatch", nil, testEvents, nil)
+				require.NoError(t, err)
+				fn, err := builder.Build()
+				require.NoError(t, err)
+				return fn
+			},
+			registerMock: func(env *testsuite.TestWorkflowEnvironment) {
+				child := func(workflow.Context, map[string]any) (any, error) { return nil, nil }
+				env.RegisterWorkflowWithOptions(child, workflow.RegisterOptions{Name: childType})
+				env.OnWorkflow(child, mock.Anything, mock.Anything).
+					Return(nil, testsuite.ErrMockStartChildWorkflowFailed)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fn := test.build(t)
+			var suite testsuite.WorkflowTestSuite
+			env := suite.NewTestWorkflowEnvironment()
+			env.RegisterWorkflowWithOptions(func(ctx workflow.Context) (any, error) {
+				return fn(ctx, map[string]any{}, utils.NewState())
+			}, workflow.RegisterOptions{Name: "no-await-start-barrier-parent"})
+			test.registerMock(env)
+
+			env.ExecuteWorkflow("no-await-start-barrier-parent")
+
+			require.ErrorContains(t, env.GetWorkflowError(), "start child workflow failed")
+			env.AssertExpectations(t)
 		})
 	}
 }

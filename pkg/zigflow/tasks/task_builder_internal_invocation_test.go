@@ -42,7 +42,11 @@ func TestInternalInvocationArgsCaptureDynamicContractOutsideState(t *testing.T) 
 
 	definition := []byte("definition-snapshot-not-in-state")
 	builder := newTestDoTaskBuilder("dynamic-invocation")
-	builder.taskOpts = &TaskOpts{DynamicExecution: NewDynamicExecutionOptions(definition)}
+	builder.taskOpts = &TaskOpts{DynamicExecution: NewDynamicExecutionOptions(definition, ProcessRunContext{
+		TenantID:           testProcessTenantID,
+		RunID:              testProcessRunID,
+		InitiatorSubjectID: testProcessSubjectID,
+	})}
 	state := utils.NewState()
 	state.Env = map[string]any{"DEPLOYMENT": "recorded"}
 	state.Input = map[string]any{"request": "123"}
@@ -58,6 +62,11 @@ func TestInternalInvocationArgsCaptureDynamicContractOutsideState(t *testing.T) 
 	require.True(t, ok)
 	require.Equal(t, InternalWorkflowInvocationVersion, invocation.Version)
 	require.Equal(t, []byte("definition-snapshot-not-in-state"), invocation.Definition)
+	require.Equal(t, ProcessRunContext{
+		TenantID:           testProcessTenantID,
+		RunID:              testProcessRunID,
+		InitiatorSubjectID: testProcessSubjectID,
+	}, invocation.ProcessRunContext)
 	require.Equal(t, state.Env, invocation.RecordedEnv)
 	require.Equal(t, state.Input, invocation.OriginalInput)
 	require.Same(t, state, invocation.State)
@@ -66,4 +75,6 @@ func TestInternalInvocationArgsCaptureDynamicContractOutsideState(t *testing.T) 
 	require.NoError(t, err)
 	require.False(t, bytes.Contains(statePayload, invocation.Definition),
 		"the definition snapshot must not be copied into built-in activity state")
+	require.False(t, bytes.Contains(statePayload, []byte(testProcessSubjectID)),
+		"the process run context must not be copied into built-in activity state")
 }

@@ -34,6 +34,11 @@ Dynamic executions accept one versioned input envelope:
 {
   "version": 1,
   "definition": "BASE64_ENCODED_YAML_OR_JSON_BYTES",
+  "processRunContext": {
+    "tenantId": "tenant-123",
+    "runId": "run-456",
+    "initiatorSubjectId": "subject-789"
+  },
   "input": {
     "name": "Ada"
   }
@@ -44,7 +49,12 @@ Dynamic executions accept one versioned input envelope:
 | --- | --- | --- |
 | `version` | Yes | Public envelope version. The supported value is `1`. |
 | `definition` | Yes | Complete YAML or JSON definition bytes. With the default JSON data converter, a Go `[]byte` is represented as a base64 string. |
+| `processRunContext` | Yes | Engine-owned execution identity containing exactly the non-empty string fields `tenantId`, `runId` and `initiatorSubjectId`. Unknown or missing fields are rejected. |
 | `input` | No | User input exposed to expressions as `$input`. The envelope itself is not exposed as `$input`. |
+
+`processRunContext` is transported separately from authored workflow state. It
+is not available through `$input`, `$data` or `$context`, and an authored value
+with the same key cannot replace the engine-owned value.
 
 The Temporal workflow type must be executable from the supplied definition,
 and `document.taskQueue` must match the queue on which the execution started.
@@ -83,9 +93,17 @@ versioned starter payload:
 ```sh
 jq -n --rawfile definition workflow.yaml \
   --arg name Ada \
+  --arg tenantId tenant-123 \
+  --arg runId run-456 \
+  --arg initiatorSubjectId subject-789 \
   '{
     version: 1,
     definition: ($definition | @base64),
+    processRunContext: {
+      tenantId: $tenantId,
+      runId: $runId,
+      initiatorSubjectId: $initiatorSubjectId
+    },
     input: {name: $name}
   }' > dynamic-input.json
 
@@ -97,15 +115,15 @@ temporal workflow start \
 ```
 
 The complete envelope is one Temporal workflow start input. A client using a
-Temporal SDK should construct the same three fields and encode `definition` as
+Temporal SDK should construct the same four fields and encode `definition` as
 bytes according to its configured data converter.
 
 ## Validation and snapshots
 
 Before the first user task executes, Zigflow:
 
-1. Decodes the envelope and rejects unsupported versions or an empty
-   definition.
+1. Decodes the envelope and rejects unsupported versions, an empty definition,
+   or a missing or malformed `processRunContext`.
 2. Parses the YAML or JSON and applies mandatory schema validation.
 3. Normalises and decodes the workflow model.
 4. Runs `PostLoad`, structural task validation, expression determinism
@@ -117,9 +135,10 @@ Input, preparation, build and dispatch failures are non-retryable Temporal
 application errors with the underlying validation message. Invalid definitions
 fail before a user timer, activity or child workflow is scheduled.
 
-The raw definition bytes are recorded in the Temporal workflow start event.
-The same bytes are carried across Zigflow-generated container child workflows
-and Continue-As-New, so replay does not reread a file or fetch a definition.
+The raw definition bytes and process run context are recorded in the Temporal
+workflow start event. Both are carried across Zigflow-generated container child
+workflows and Continue-As-New, so replay does not reread a file or fetch a
+definition and execution identity is not lost at an internal boundary.
 
 Environment variables selected by `--env-prefix` are read during worker
 startup. The dynamic root records that captured map with a Temporal side effect
@@ -159,9 +178,11 @@ Static workflows keep their existing per-task aliases and replay compatibility.
 The fixed dynamic names mean activity type names do not include the task name.
 Custom `call: activity` tasks remain name-based and are unchanged.
 
-A `run.workflow` task still targets an external named Temporal workflow. The
-inline definition does not resolve or register that target. A worker must
-register the target workflow separately on the requested task queue.
+A `run.workflow` task still targets a named Temporal workflow. The inline
+definition does not resolve or register that target. When `taskQueue` is set,
+Zigflow schedules the child on that queue and passes the resolved `input`
+object as exactly one native Temporal argument. A worker must register the
+target workflow separately on the requested task queue.
 
 ## Current constraints
 
