@@ -592,3 +592,42 @@ func flatDynamicDefinition(workflowType, taskDefinitions string) []byte {
 do:%s
 `, workflowType, taskDefinitions))
 }
+
+// TestDynamicWorkflowRunsNativeChildWithoutExplicitAwait is the loader-path
+// regression for the ether demo nil-pointer panic: a run.workflow.taskQueue
+// task whose authored YAML omits `await:` must execute through the full
+// dynamic pipeline (YAML -> loader -> prepare -> build -> run). PostLoad's
+// Await default only survives to the Build phase when it lands on the shared
+// parsed extension model, because DoTaskBuilder reconstructs builders for
+// each phase.
+func TestDynamicWorkflowRunsNativeChildWithoutExplicitAwait(t *testing.T) {
+	definition := flatDynamicDefinition("dynamic-native-child", `
+  - chat:
+      run:
+        workflow:
+          type: native-agent-run
+          taskQueue: agent-runs
+          input:
+            message: ${ $input.message }`)
+
+	handler := zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{})
+	harness := newDynamicWorkflowTestHarness(t, handler)
+	harness.env.RegisterWorkflowWithOptions(
+		func(_ workflow.Context, request map[string]any) (map[string]any, error) {
+			return map[string]any{"echo": request}, nil
+		},
+		workflow.RegisterOptions{Name: "native-agent-run"},
+	)
+	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
+	harness.execute("dynamic-native-child", zigflow.DynamicWorkflowInput{
+		Version:           zigflow.DynamicWorkflowInputVersion,
+		Definition:        definition,
+		Input:             map[string]any{"message": "hello"},
+		ProcessRunContext: testProcessRunContext(),
+	})
+
+	requireWorkflowResult(t, harness.env, map[string]any{
+		"echo": map[string]any{"message": "hello"},
+	})
+	requireScheduledChildWorkflowNames(t, harness, "native-agent-run")
+}

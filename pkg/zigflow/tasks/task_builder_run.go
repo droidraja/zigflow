@@ -18,7 +18,6 @@ package tasks
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 
 	"github.com/serverlessworkflow/sdk-go/v3/model"
@@ -26,14 +25,11 @@ import (
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/activities"
 	"github.com/zigflow/zigflow/pkg/zigflow/flow"
-	"github.com/zigflow/zigflow/pkg/zigflow/models"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
-
-var nativeWorkflowTaskQueuePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
 type RunTaskOpts struct {
 	Namespace      string
@@ -61,41 +57,8 @@ func NewRunTaskBuilder(
 	}, nil
 }
 
-// NewRunWorkflowExtTaskBuilder constructs the explicit cross-task-queue
-// native child workflow variant.
-func NewRunWorkflowExtTaskBuilder(
-	temporalWorker worker.Worker,
-	task *models.RunWorkflowExtTask,
-	taskName string,
-	doc *model.Workflow,
-	emitter *cloudevents.Events,
-	taskOpts *TaskOpts,
-) (*RunTaskBuilder, error) {
-	workflowTask := &model.RunTask{
-		TaskBase: task.TaskBase,
-		Run: model.RunTaskConfiguration{
-			Await: task.Run.Await,
-			Workflow: &model.RunWorkflow{
-				Name:  task.Run.Workflow.Type,
-				Input: task.Run.Workflow.Input,
-			},
-		},
-	}
-	builder, err := NewRunTaskBuilder(temporalWorker, workflowTask, taskName, doc, emitter, taskOpts)
-	if err != nil {
-		return nil, err
-	}
-	builder.nativeWorkflowTaskQueue = task.Run.Workflow.TaskQueue
-	return builder, nil
-}
-
 type RunTaskBuilder struct {
 	builder[*model.RunTask]
-	// nativeWorkflowTaskQueue is non-empty only for Zigflow's explicit
-	// run.workflow.taskQueue extension. It selects the native one-argument
-	// Temporal child contract instead of Zigflow's internal (input, state)
-	// contract.
-	nativeWorkflowTaskQueue string
 	// activityName is set by Build() once we know which sub-activity
 	// (Container, Script, Shell) will run. Static builds store the per-task
 	// alias so SDK metrics carry activity_type=<workflowType>.<taskName>.
@@ -172,14 +135,6 @@ func (t *RunTaskBuilder) Build() (TemporalWorkflowFunc, error) {
 }
 
 func (t *RunTaskBuilder) Validate() error {
-	if t.nativeWorkflowTaskQueue != "" {
-		if t.task.Run.Workflow == nil || t.task.Run.Workflow.Name == "" {
-			return fmt.Errorf("native child workflow type must be set: %s", t.GetTaskName())
-		}
-		if !nativeWorkflowTaskQueuePattern.MatchString(t.nativeWorkflowTaskQueue) {
-			return fmt.Errorf("native child workflow task queue must be a valid RFC 1123 DNS label: %s", t.GetTaskName())
-		}
-	}
 	if t.task.Run.Container != nil && len(t.task.Run.Container.Ports) > 0 {
 		return fmt.Errorf("ports are not allowed on containers")
 	}
@@ -217,7 +172,7 @@ func (t *RunTaskBuilder) PostLoad() error {
 	}
 
 	// Default run.workflow fields.
-	if w := t.task.Run.Workflow; w != nil && t.nativeWorkflowTaskQueue == "" {
+	if w := t.task.Run.Workflow; w != nil {
 		if w.Namespace == "" {
 			w.Namespace = constDefaultNamespace
 		}
@@ -280,23 +235,14 @@ func (t *RunTaskBuilder) runWorkflow(ctx workflow.Context, input any, state *uti
 
 	await := *t.task.Run.Await
 
-	opts := workflow.ChildWorkflowOptions{TaskQueue: t.nativeWorkflowTaskQueue}
+	opts := workflow.ChildWorkflowOptions{}
 	if !await {
 		opts.ParentClosePolicy = enums.PARENT_CLOSE_POLICY_ABANDON
 	}
 
 	ctx = workflow.WithChildOptions(ctx, opts)
 
-	var future workflow.ChildWorkflowFuture
-	if t.nativeWorkflowTaskQueue == "" {
-		future = workflow.ExecuteChildWorkflow(ctx, t.task.Run.Workflow.Name, input, state)
-	} else {
-		childInput, err := t.resolveNativeWorkflowInput(state)
-		if err != nil {
-			return nil, fmt.Errorf("resolve native child workflow input: %w", err)
-		}
-		future = workflow.ExecuteChildWorkflow(ctx, t.task.Run.Workflow.Name, childInput)
-	}
+	future := workflow.ExecuteChildWorkflow(ctx, t.task.Run.Workflow.Name, input, state)
 
 	if !await {
 		if err := future.GetChildWorkflowExecution().Get(ctx, nil); err != nil {
@@ -327,12 +273,4 @@ func (t *RunTaskBuilder) runWorkflow(ctx workflow.Context, input any, state *uti
 	logger.Debug("Child workflow completed", "task", t.GetTaskName())
 
 	return res, nil
-}
-
-func (t *RunTaskBuilder) resolveNativeWorkflowInput(state *utils.State) (any, error) {
-	input := t.task.Run.Workflow.Input
-	if input == nil {
-		input = map[string]any{}
-	}
-	return utils.TraverseAndEvaluateObj(model.NewObjectOrRuntimeExpr(input), nil, state)
 }

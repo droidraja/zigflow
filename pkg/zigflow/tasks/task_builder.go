@@ -534,6 +534,7 @@ var (
 	_ TaskBuilder = &ListenTaskBuilder{}
 	_ TaskBuilder = &RaiseTaskBuilder{}
 	_ TaskBuilder = &RunTaskBuilder{}
+	_ TaskBuilder = &RunWorkflowExtTaskBuilder{}
 	_ TaskBuilder = &SetTaskBuilder{}
 	_ TaskBuilder = &SwitchTaskBuilder{}
 	_ TaskBuilder = &TryTaskBuilder{}
