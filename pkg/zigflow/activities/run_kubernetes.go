@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	swUtil "github.com/serverlessworkflow/sdk-go/v3/impl/utils"
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	swUtil "github.com/open-workflow-specification/sdk-go/v4/impl/utils"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/metadata"
 	"github.com/zigflow/zigflow/pkg/zigflow/models"
@@ -53,8 +53,8 @@ const defaultKubernetesPollInterval = time.Second
 // shorter is treated as effectively unset.
 const defaultTTLThreshold = 2 * time.Second
 
-// lifetimeCleanup* mirror the cleanup values defined by the Serverless
-// Workflow ContainerLifetime schema.
+// lifetimeCleanup* mirror the cleanup values defined by the Open Workflow
+// Specification ContainerLifetime schema.
 const (
 	lifetimeCleanupAlways     = "always"
 	lifetimeCleanupEventually = "eventually"
@@ -344,7 +344,7 @@ func (r *Run) buildJobSpec(
 					// workload ServiceAccount also disables automount, but
 					// pinning it here means the runtime is safe even when a
 					// caller wires it up against a token-mounted account.
-					AutomountServiceAccountToken: utils.Ptr(false),
+					AutomountServiceAccountToken: new(false),
 					Containers:                   []corev1.Container{container},
 				},
 			},
@@ -354,7 +354,7 @@ func (r *Run) buildJobSpec(
 	if task.Run.Container.Lifetime != nil && task.Run.Container.Lifetime.Cleanup == lifetimeCleanupEventually {
 		after := utils.ToDuration(task.Run.Container.Lifetime.After)
 		if after >= defaultTTLThreshold {
-			job.Spec.TTLSecondsAfterFinished = utils.Ptr(int32(after.Seconds()))
+			job.Spec.TTLSecondsAfterFinished = new(int32(after.Seconds()))
 		}
 	}
 

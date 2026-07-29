@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/metadata"
@@ -45,7 +45,7 @@ func TestConvertRetryPolicy(t *testing.T) {
 			Name: "Full",
 			RetryPolicy: &metadata.RetryPolicy{
 				InitialInterval:        &model.Duration{Value: model.DurationInline{Seconds: 1}},
-				BackoffCoefficient:     utils.Ptr(2.0),
+				BackoffCoefficient:     new(2.0),
 				MaximumAttempts:        utils.Ptr[int32](3),
 				MaximumInterval:        &model.Duration{Value: model.DurationInline{Seconds: 3}},
 				NonRetryableErrorTypes: []string{"error1"},

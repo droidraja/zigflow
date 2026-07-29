@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/stretchr/testify/require"
 	"github.com/zigflow/zigflow/pkg/utils"
 	commonpb "go.temporal.io/api/common/v1"
@@ -120,10 +120,10 @@ func TestReplayUsesLegacyActivityTypeForOldHistories(t *testing.T) {
 				t.Helper()
 				task := &model.RunTask{
 					Run: model.RunTaskConfiguration{
-						Await: utils.Ptr(true),
+						Await: new(true),
 						Script: &model.Script{
 							Language:   constScriptLanguagePython,
-							InlineCode: utils.Ptr("print(1)"),
+							InlineCode: new("print(1)"),
 						},
 					},
 				}

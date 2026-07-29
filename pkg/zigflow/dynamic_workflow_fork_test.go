@@ -157,7 +157,7 @@ func TestDynamicWorkflowForkWrapsBranchFailure(t *testing.T) {
           - failure:
               raise:
                 error:
-                  type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                  type: https://zigflow.dev/spec/1.0.0/errors/communication
                   status: 500`)
 	harness := newDynamicWorkflowTestHarness(t, zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}))
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
@@ -175,7 +175,7 @@ func TestDynamicWorkflowForkFailureTakesPrecedenceOverEnd(t *testing.T) {
           - failure:
               raise:
                 error:
-                  type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                  type: https://zigflow.dev/spec/1.0.0/errors/communication
                   status: 500
           - ending:
               then: end
@@ -212,12 +212,12 @@ func TestDynamicWorkflowForkEndReachesRootWithEffectiveOutput(t *testing.T) {
                 - fail:
                     raise:
                       error:
-                        type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                        type: https://zigflow.dev/spec/1.0.0/errors/communication
                         status: 500
   - must-not-run:
       raise:
         error:
-          type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+          type: https://zigflow.dev/spec/1.0.0/errors/communication
           status: 500`)
 	harness := newDynamicWorkflowTestHarness(t, zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}))
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})

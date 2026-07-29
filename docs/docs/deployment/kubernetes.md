@@ -33,7 +33,9 @@ helm install zigflow oci://ghcr.io/zigflow/charts/zigflow@${ZIGFLOW_VERSION}
 ## Minimal configuration
 
 The chart requires at minimum a Temporal server address and a workflow
-definition. The simplest configuration uses an inline workflow:
+definition. Inline YAML is the chart default and the quickest way to try the
+chart. For production deployments, use a
+[dedicated image](/docs/deployment/dedicated-image).
 
 ```yaml title="values.yaml"
 config:
@@ -70,10 +72,25 @@ helm install zigflow oci://ghcr.io/zigflow/charts/zigflow@${ZIGFLOW_VERSION} \
 The chart supports three ways to provide a static workflow file and one
 file-free dynamic mode:
 
+:::tip[Recommended production approach]
+
+For production deployments, build a
+[dedicated image](/docs/deployment/dedicated-image) containing your workflow
+definitions. This creates a versioned, immutable artifact that can be tested,
+promoted and rolled back as a single unit.
+
+Inline YAML remains the chart default and, along with Kubernetes Secrets, is
+primarily intended for development, testing and simple deployments where
+runtime workflow injection is useful.
+:::
+
 ### Option 1 - Inline YAML (default)
 
+Inline YAML is the chart default and the quickest way to run a workflow. It is
+best suited to development, evaluation and testing.
+
 Set `workflow.useInline: true` and provide the workflow under `workflow.inline`.
-The chart renders the workflow into a ConfigMap.
+The chart renders the workflow into a Secret.
 
 ```yaml title="values.yaml"
 workflow:
@@ -92,6 +109,11 @@ See [Minimal configuration](#minimal-configuration) for a complete example.
 
 ### Option 2 - Kubernetes Secret
 
+Use a Kubernetes Secret when you want to manage a workflow definition
+separately from the container image and inject it into the worker at runtime.
+This can be useful for development, testing and Kubernetes-managed
+configuration.
+
 Set `workflow.useInline: false` and create a Secret that contains the workflow:
 
 ```sh
@@ -109,6 +131,10 @@ workflow:
 ```
 
 ### Option 3 - Dedicated image
+
+A dedicated image is the recommended approach for production deployments. The
+workflow definitions are built into the image, producing a versioned and
+immutable deployment artifact.
 
 If you have built an image with the workflow baked in (see
 [Dedicated image](/docs/deployment/dedicated-image)), set `workflow.enabled: false`
@@ -335,8 +361,13 @@ For standard production deployments, the default `Deployment` mode is sufficient
 Zigflow does not install Temporal Worker Controller, its CRDs or cert-manager.
 You must install and manage these yourself before enabling TWC in the chart:
 
-- Temporal Worker Controller and its CRDs
+- Temporal Worker Controller and its CRDs, chart version `0.26.0` or newer
+  (controller `v1.7.0` or newer)
 - [cert-manager](https://cert-manager.io/) (required by TWC)
+
+Zigflow renders GA TWC resources (`Connection`, `WorkerDeployment` and
+`workerDeploymentRef`). Earlier TWC chart versions only support the deprecated
+pre-GA resource names and will fail to apply this chart's TWC mode.
 
 Zigflow only renders the CRDs that TWC consumes. It does not install or manage TWC.
 
@@ -355,14 +386,14 @@ controller:
 
 When enabled, the chart renders:
 
-- `TemporalConnection`: connection configuration consumed by TWC
-- `TemporalWorkerDeployment`: worker definition with rollout and sunset settings
+- `Connection`: connection configuration consumed by TWC
+- `WorkerDeployment`: worker definition with rollout and sunset settings
 
 No standard Kubernetes `Deployment` is created.
 
 ### Connection and authentication
 
-The `TemporalConnection` resource configures how TWC connects to Temporal.
+The `Connection` resource configures how TWC connects to Temporal.
 This is separate from the `config` map used for Zigflow's own connection settings.
 
 **No authentication (cluster-local Temporal):**
@@ -517,10 +548,6 @@ namespace.
 **ImagePullBackOff for the chart image.**
 Verify the version tag exists in
 [ghcr.io/zigflow/charts/zigflow](https://github.com/zigflow/zigflow/pkgs/container/charts%2Fzigflow).
-
-**Workflow not updating after a values change.**
-The chart renders the inline workflow into a ConfigMap. After a `helm
-upgrade`, the pod must be restarted to pick up the new workflow.
 
 **TWC resources not applied because prerequisites are missing.**
 If Temporal Worker Controller and its CRDs are not installed in the cluster,

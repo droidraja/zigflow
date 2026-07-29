@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -45,7 +45,7 @@ const (
 func (fakeWorkflowContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (fakeWorkflowContext) Done() workflow.Channel      { return nil }
 func (fakeWorkflowContext) Err() error                  { return nil }
-func (fakeWorkflowContext) Value(key interface{}) interface{} {
+func (fakeWorkflowContext) Value(key any) any {
 	return nil
 }
 

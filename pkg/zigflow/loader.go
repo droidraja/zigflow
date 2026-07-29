@@ -24,7 +24,7 @@ import (
 	"regexp"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/zigflow/schema"
 	"github.com/zigflow/zigflow/pkg/zigflow/extensions"
 
@@ -57,7 +57,7 @@ func prepareWorkflowBytes(data []byte, validateSchema bool) (*model.Workflow, er
 		return nil, fmt.Errorf("error converting yaml to json: %w", err)
 	}
 
-	// normalise the Zigflow data structure to Serverless Workflow data structure
+	// normalise the Zigflow data structure to Open Workflow Specification data structure
 	var raw map[string]any
 	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
 		return nil, fmt.Errorf("error unmarshalling to zigflow raw workflow: %w", err)
@@ -85,7 +85,7 @@ func prepareWorkflowBytes(data []byte, validateSchema bool) (*model.Workflow, er
 		return nil, fmt.Errorf("error marshalling raw workflow to json: %w", err)
 	}
 
-	// Now convert to Serverless Workflow's Workflow model
+	// Now convert to the Open Workflow Specification Workflow model
 	var wf *model.Workflow
 	if err := json.Unmarshal(normalisedJSON, &wf); err != nil {
 		return nil, fmt.Errorf("error unmarshaling json to workflow: %w", err)

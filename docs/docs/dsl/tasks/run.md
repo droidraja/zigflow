@@ -447,9 +447,10 @@ Using any other scheme (for example `ftp://`) will cause the task to fail with
 an unsupported scheme error.
 
 **`namespace` and `version` in `run.workflow` are not used.** These fields
-exist for Serverless Workflow specification compatibility only. Without
-`taskQueue`, the target workflow is looked up by type on the current task
-queue. Use `taskQueue` for the explicit native child contract described above.
+exist for Open Workflow Specification (formerly Serverless Workflow)
+compatibility only. Without `taskQueue`, the target workflow is looked up by
+type on the current task queue. Use `taskQueue` for the explicit native child
+contract described above.
 
 ## Related pages
 

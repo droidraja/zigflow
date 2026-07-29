@@ -11,10 +11,11 @@
 **Declarative YAML workflows on Temporal. No SDK boilerplate.**
 
 Zigflow lets you define and run [Temporal](https://temporal.io) workflows using
-YAML, built on the [CNCF Serverless Workflow](https://serverlessworkflow.io)
-specification. You write a workflow definition; Zigflow validates it, builds a
-deterministic task closure tree and interprets that tree during Temporal
-workflow execution. No Go, Java or TypeScript workflow code is required.
+YAML, built on the [CNCF Open Workflow Specification](https://open-workflow-specification.org)
+(formerly Serverless Workflow). You write a workflow definition; Zigflow
+validates it, builds a deterministic task closure tree and interprets that tree
+during Temporal workflow execution. No Go, Java or TypeScript workflow code is
+required.
 
 > If this looks useful, a ⭐ helps others find the project.
 
@@ -130,7 +131,7 @@ SDK-level flexibility for faster development and consistent workflow structure.
 | **Control and flexibility** | Maximum | Depends on implementation | Opinionated and constrained |
 | **Retries and durability** | ✅ Native Temporal | ⚠️ You build it | ✅ Native Temporal |
 | **Continue-as-new** | ✅ Supported (you implement and tune it) | ⚠️ You build it | ✅ Automatic (Zigflow continues as new for you) |
-| **CNCF spec alignment** | ❌ | ❌ Usually bespoke | ✅ Serverless Workflow v1.0+ |
+| **CNCF spec alignment** | ❌ | ❌ Usually bespoke | ✅ Open Workflow Specification v1.0+ |
 | **Validation before execution** | Manual or custom | Depends on implementation | ✅ Built-in validation |
 | **Boilerplate and worker setup** | Required | Depends on implementation | Minimal |
 | **Kubernetes deployment** | Manual | Manual | ✅ Helm chart included |
@@ -191,7 +192,7 @@ Temporal, not a replacement for its full SDK capabilities.
 
 ## How it works
 
-1. You define a workflow using YAML based on the Serverless Workflow spec.
+1. You define a workflow using YAML based on the Open Workflow Specification.
 2. Zigflow validates the definition before execution.
 3. Zigflow builds a deterministic tree of Go closures from the validated task
    structure.
@@ -327,7 +328,7 @@ schedules and more) are in [examples/](./examples).
 ## Features
 
 - **Temporal DSL**: declarative YAML definitions interpreted as Temporal workflows
-- **CNCF standard**: aligned with Serverless Workflow v1.0+
+- **CNCF standard**: aligned with Open Workflow Specification v1.0+
 - **Validation first**: definitions are validated before execution; invalid or
   unsupported constructs are rejected with actionable errors
 - **Multi-language activities**: activity workers can use any Temporal SDK
@@ -420,7 +421,7 @@ Bug reports, feedback and contributions are welcome.
 ## Related projects
 
 - [Temporal](https://temporal.io)
-- [CNCF Serverless Workflow](https://serverlessworkflow.io)
+- [CNCF Open Workflow Specification](https://open-workflow-specification.org)
 - [Helm chart](./charts/zigflow)
 
 ---
@@ -440,8 +441,6 @@ guidelines on naming conventions, dev setup and commit style.
 </a>
 
 Made with [contrib.rocks](https://contrib.rocks/preview?repo=zigflow%2Fzigflow).
-
-[![Star History Chart](https://api.star-history.com/svg?repos=zigflow/zigflow&type=date&legend=top-left)](https://www.star-history.com/#zigflow/zigflow&type=date&legend=top-left)
 
 ---
 

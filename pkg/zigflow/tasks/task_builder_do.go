@@ -22,9 +22,9 @@ import (
 	"fmt"
 
 	ceSDK "github.com/cloudevents/sdk-go/v2"
+	swUtil "github.com/open-workflow-specification/sdk-go/v4/impl/utils"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/rs/zerolog/log"
-	swUtil "github.com/serverlessworkflow/sdk-go/v3/impl/utils"
-	"github.com/serverlessworkflow/sdk-go/v3/model"
 	"github.com/zigflow/zigflow/pkg/cloudevents"
 	"github.com/zigflow/zigflow/pkg/telemetry"
 	"github.com/zigflow/zigflow/pkg/utils"
@@ -295,7 +295,7 @@ func (t *DoTaskBuilder) continueAsNew(
 	}
 
 	logger.Info("Continuing as new", "taskId", taskID)
-	state.CANStartFrom = utils.Ptr(taskID)
+	state.CANStartFrom = new(taskID)
 	return workflow.NewContinueAsNewError(ctx, wfn, t.internalInvocationArgs(input, state)...)
 }
 

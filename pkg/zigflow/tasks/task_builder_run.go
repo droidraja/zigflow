@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/zigflow/zigflow/pkg/cloudevents"
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/activities"
@@ -162,7 +162,7 @@ func (t *RunTaskBuilder) PostLoad() error {
 	// Default await to true: the returned closure and script validation in Build()
 	// both dereference this field, so it must be non-nil before Build() runs.
 	if t.task.Run.Await == nil {
-		t.task.Run.Await = utils.Ptr(true)
+		t.task.Run.Await = new(true)
 	}
 
 	// Default container lifetime: the container activity treats nil Lifetime the

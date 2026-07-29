@@ -66,7 +66,7 @@ do:
 ```
 
 :::tip
-The DSL schema follows the Serverless Workflow specification
+The DSL schema follows the Open Workflow Specification (formerly Serverless Workflow)
 :::
 
 ### Run

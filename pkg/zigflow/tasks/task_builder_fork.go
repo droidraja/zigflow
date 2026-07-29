@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/rs/zerolog/log"
-	"github.com/serverlessworkflow/sdk-go/v3/model"
 	"github.com/zigflow/zigflow/pkg/cloudevents"
 	"github.com/zigflow/zigflow/pkg/utils"
 	"github.com/zigflow/zigflow/pkg/zigflow/flow"
@@ -306,9 +306,9 @@ type forkState struct {
 func (t *ForkTaskBuilder) handleBranchError(
 	ctx workflow.Context,
 	logger interface {
-		Debug(msg string, keyvals ...interface{})
-		Info(msg string, keyvals ...interface{})
-		Error(msg string, keyvals ...interface{})
+		Debug(msg string, keyvals ...any)
+		Info(msg string, keyvals ...any)
+		Error(msg string, keyvals ...any)
 	},
 	taskName string,
 	err error,
@@ -351,7 +351,7 @@ func (t *ForkTaskBuilder) handleBranchError(
 func (fs *forkState) recordReply(
 	ctx workflow.Context,
 	logger interface {
-		Debug(msg string, keyvals ...interface{})
+		Debug(msg string, keyvals ...any)
 	},
 	taskName string,
 	childData map[string]any,

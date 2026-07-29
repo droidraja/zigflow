@@ -24,9 +24,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zigflow/zigflow/pkg/utils"
@@ -270,7 +271,9 @@ func TestRunExecCommandRespectsWorkingDirectory(t *testing.T) {
 	require.NoError(t, err)
 	var output string
 	require.NoError(t, val.Get(&output))
-	assert.Equal(t, dir, output)
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedDir, output)
 }
 
 // TestCallScriptActivityExternalSource covers the external-script fetch path:

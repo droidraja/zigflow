@@ -188,24 +188,24 @@ Problem Details format.
 - rejectRequest:
     raise:
       error:
-        type: https://serverlessworkflow.io/spec/1.0.0/errors/authorization
+        type: https://zigflow.dev/spec/1.0.0/errors/authorization
         status: 403
         title: Forbidden
         detail: Only admin users can perform this action
 ```
 
-Standard error types from the Serverless Workflow specification:
+Standard error types from the Open Workflow Specification (formerly Serverless Workflow):
 
 | Type | Status |
 | --- | --- |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/configuration` | 400 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/validation` | 400 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/expression` | 400 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/authentication` | 401 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/authorization` | 403 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/timeout` | 408 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/communication` | 500 |
-| `https://serverlessworkflow.io/spec/1.0.0/errors/runtime` | 500 |
+| `https://zigflow.dev/spec/1.0.0/errors/configuration` | 400 |
+| `https://zigflow.dev/spec/1.0.0/errors/validation` | 400 |
+| `https://zigflow.dev/spec/1.0.0/errors/expression` | 400 |
+| `https://zigflow.dev/spec/1.0.0/errors/authentication` | 401 |
+| `https://zigflow.dev/spec/1.0.0/errors/authorization` | 403 |
+| `https://zigflow.dev/spec/1.0.0/errors/timeout` | 408 |
+| `https://zigflow.dev/spec/1.0.0/errors/communication` | 500 |
+| `https://zigflow.dev/spec/1.0.0/errors/runtime` | 500 |
 
 The status shown is the recommended default. Use the HTTP status code that
 best describes the error.

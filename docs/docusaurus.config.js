@@ -42,6 +42,15 @@ const vscodeLangserverTypesEsm = require
 /** @type {import('@docusaurus/types').PluginConfig[]} */
 const plugins = [
   loadExamplesPlugin,
+  [
+    '@docusaurus/plugin-content-docs',
+    {
+      id: 'spec',
+      path: 'spec',
+      routeBasePath: 'spec',
+      sidebarPath: false,
+    },
+  ],
   () => ({
     name: 'vscode-languageserver-types-esm-alias',
     configureWebpack() {
@@ -217,7 +226,7 @@ const config = {
         {
           name: 'keywords',
           content:
-            'Temporal, YAML workflows, durable execution, workflow engine, orchestration, serverless workflow, Zigflow',
+            'Temporal, YAML workflows, durable execution, workflow engine, orchestration, open workflow specification, Zigflow',
         },
       ],
       navbar: {
@@ -332,8 +341,8 @@ const config = {
                 href: 'https://temporal.io',
               },
               {
-                label: 'Serverless Workflow',
-                href: 'https://serverlessworkflow.io',
+                label: 'Open Workflow Specification',
+                href: 'https://open-workflow-specification.org',
               },
             ],
           },

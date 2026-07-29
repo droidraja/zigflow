@@ -214,7 +214,7 @@ func TestDynamicWorkflowForNestedEndReachesRootWithEffectiveOutput(t *testing.T)
   - must-not-run:
       raise:
         error:
-          type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+          type: https://zigflow.dev/spec/1.0.0/errors/communication
           status: 500`)
 	harness := newDynamicWorkflowTestHarness(t, zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}))
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})

@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/serverlessworkflow/sdk-go/v3/model"
+	"github.com/open-workflow-specification/sdk-go/v4/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -52,7 +52,7 @@ func TestRunTaskBuilderValidateNeedsPostLoadAwaitDefault(t *testing.T) {
 				Await: nil, // explicit: PostLoad must populate this before Validate
 				Script: &model.Script{
 					Language:   constScriptLanguagePython,
-					InlineCode: utils.Ptr("print(1)"),
+					InlineCode: new("print(1)"),
 				},
 			},
 		}
@@ -123,12 +123,12 @@ func TestRunTaskBuilderRunWorkflow(t *testing.T) {
 	}{
 		{
 			name:          "await child workflow result",
-			await:         utils.Ptr(true),
+			await:         new(true),
 			expectNilResp: false,
 		},
 		{
 			name:          "skip await returns nil response",
-			await:         utils.Ptr(false),
+			await:         new(false),
 			expectNilResp: true,
 		},
 	}
@@ -397,7 +397,7 @@ func TestRunTaskBuilderRunWorkflowPropagatesEndFromChild(t *testing.T) {
 
 	task := &model.RunTask{
 		Run: model.RunTaskConfiguration{
-			Await: utils.Ptr(true),
+			Await: new(true),
 			Workflow: &model.RunWorkflow{
 				Namespace: constDefaultNamespace,
 				Name:      childWorkflowName,
@@ -465,7 +465,7 @@ func TestRunTaskBuilderRunScriptValidation(t *testing.T) {
 				Run: model.RunTaskConfiguration{
 					Script: &model.Script{
 						Language:   "golang",
-						InlineCode: utils.Ptr(inline),
+						InlineCode: new(inline),
 					},
 				},
 			},
@@ -486,10 +486,10 @@ func TestRunTaskBuilderRunScriptValidation(t *testing.T) {
 			name: "await disabled",
 			task: &model.RunTask{
 				Run: model.RunTaskConfiguration{
-					Await: utils.Ptr(false),
+					Await: new(false),
 					Script: &model.Script{
 						Language:   constScriptLanguagePython,
-						InlineCode: utils.Ptr(inline),
+						InlineCode: new(inline),
 					},
 				},
 			},
@@ -501,7 +501,7 @@ func TestRunTaskBuilderRunScriptValidation(t *testing.T) {
 				Run: model.RunTaskConfiguration{
 					Script: &model.Script{
 						Language:   constScriptLanguagePython,
-						InlineCode: utils.Ptr(inline),
+						InlineCode: new(inline),
 						External: &model.ExternalResource{
 							Endpoint: model.NewEndpoint("file:///scripts/run.py"),
 						},
@@ -574,7 +574,7 @@ func TestRunTaskBuilderRunScriptExecutesActivity(t *testing.T) {
 		Run: model.RunTaskConfiguration{
 			Script: &model.Script{
 				Language:   constScriptLanguagePython,
-				InlineCode: utils.Ptr("print('hello')"),
+				InlineCode: new("print('hello')"),
 			},
 		},
 	}
@@ -633,7 +633,7 @@ func TestRunTaskBuilderPostLoadPreservesExplicitAwait(t *testing.T) {
 	task := &model.RunTask{
 		Run: model.RunTaskConfiguration{
 			Shell: &model.Shell{Command: testConstEcho},
-			Await: utils.Ptr(false),
+			Await: new(false),
 		},
 	}
 
@@ -897,7 +897,7 @@ func TestRunTaskBuilderRegistersPerTaskActivityName(t *testing.T) {
 			makeTask: func() *model.RunTask {
 				return &model.RunTask{
 					Run: model.RunTaskConfiguration{
-						Await:     utils.Ptr(true),
+						Await:     new(true),
 						Container: &model.Container{Image: "busybox:latest"},
 					},
 				}
@@ -910,10 +910,10 @@ func TestRunTaskBuilderRegistersPerTaskActivityName(t *testing.T) {
 			makeTask: func() *model.RunTask {
 				return &model.RunTask{
 					Run: model.RunTaskConfiguration{
-						Await: utils.Ptr(true),
+						Await: new(true),
 						Script: &model.Script{
 							Language:   constScriptLanguagePython,
-							InlineCode: utils.Ptr("print(1)"),
+							InlineCode: new("print(1)"),
 						},
 					},
 				}
@@ -926,7 +926,7 @@ func TestRunTaskBuilderRegistersPerTaskActivityName(t *testing.T) {
 			makeTask: func() *model.RunTask {
 				return &model.RunTask{
 					Run: model.RunTaskConfiguration{
-						Await: utils.Ptr(true),
+						Await: new(true),
 						Shell: &model.Shell{Command: "echo hello"},
 					},
 				}
@@ -961,7 +961,7 @@ func TestRunTaskBuilderWorkflowVariantDoesNotRegisterActivity(t *testing.T) {
 	doc := &model.Workflow{Document: model.Document{Name: "wf-run-child"}}
 	task := &model.RunTask{
 		Run: model.RunTaskConfiguration{
-			Await:    utils.Ptr(true),
+			Await:    new(true),
 			Workflow: &model.RunWorkflow{Namespace: constDefaultNamespace, Name: "child", Version: testConstRunWorkflowVersion},
 		},
 	}
@@ -982,7 +982,7 @@ func TestRunTaskBuilderBuildWithoutWorker(t *testing.T) {
 	doc := &model.Workflow{Document: model.Document{Name: "wf-run-nil-worker"}}
 	task := &model.RunTask{
 		Run: model.RunTaskConfiguration{
-			Await: utils.Ptr(true),
+			Await: new(true),
 			Shell: &model.Shell{Command: "echo hello"},
 		},
 	}

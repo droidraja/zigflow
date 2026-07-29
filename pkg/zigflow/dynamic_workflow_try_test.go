@@ -44,7 +44,7 @@ func TestDynamicWorkflowTryRunsCatchWithRecordedInvocationAndErrorData(t *testin
         - fail:
             raise:
               error:
-                type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                type: https://zigflow.dev/spec/1.0.0/errors/communication
                 status: 400
       catch:
         as: failure
@@ -125,7 +125,7 @@ func TestDynamicWorkflowCatchDataDoesNotLeakWithoutOutputOrExport(t *testing.T) 
         - fail:
             raise:
               error:
-                type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                type: https://zigflow.dev/spec/1.0.0/errors/communication
                 status: 400
       catch:
         as: failure
@@ -169,12 +169,12 @@ func TestDynamicWorkflowTryEndBypassesCatchAndReachesRoot(t *testing.T) {
           - must-not-run:
               raise:
                 error:
-                  type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                  type: https://zigflow.dev/spec/1.0.0/errors/communication
                   status: 500
   - must-not-run:
       raise:
         error:
-          type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+          type: https://zigflow.dev/spec/1.0.0/errors/communication
           status: 500`)
 	harness := newDynamicWorkflowTestHarness(t, zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}))
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
@@ -191,7 +191,7 @@ func TestDynamicWorkflowCatchEndReachesRoot(t *testing.T) {
         - fail:
             raise:
               error:
-                type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+                type: https://zigflow.dev/spec/1.0.0/errors/communication
                 status: 400
       catch:
         as: failure
@@ -208,7 +208,7 @@ func TestDynamicWorkflowCatchEndReachesRoot(t *testing.T) {
   - must-not-run:
       raise:
         error:
-          type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
+          type: https://zigflow.dev/spec/1.0.0/errors/communication
           status: 500`)
 	harness := newDynamicWorkflowTestHarness(t, zigflow.NewDynamicWorkflowHandler(zigflow.DynamicWorkflowOptions{}))
 	harness.env.SetStartWorkflowOptions(client.StartWorkflowOptions{TaskQueue: dynamicTestTaskQueue})
