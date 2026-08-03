@@ -31,7 +31,7 @@ require (
 	go.temporal.io/sdk v1.47.0
 	go.temporal.io/sdk/contrib/sysinfo v0.1.1
 	go.yaml.in/yaml/v2 v2.4.4
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.0
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
